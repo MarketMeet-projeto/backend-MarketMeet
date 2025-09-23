@@ -6,9 +6,10 @@ const express = require('express');
 const mysql = require('mysql2');
 const bcrypt = require('bcryptjs');
 const cors = require('cors');
-app.use(cors());
 
-const app = express();
+const app = express(); 
+app.use(cors());       
+
 const PORT = 3000;
 
 // ===========================================
@@ -237,7 +238,7 @@ app.get('/api/test', (req, res) => {
 // ===========================================
 // INICIALIZAÇÃO DO SERVIDOR
 // ===========================================
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0',() => {
   console.log(`🚀 Servidor rodando na porta ${PORT}`);
   console.log(`📍 Status: http://localhost:${PORT}/api/status`);
   console.log(`🧪 Teste: http://localhost:${PORT}/api/test`);
