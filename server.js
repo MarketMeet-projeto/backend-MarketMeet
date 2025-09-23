@@ -24,8 +24,8 @@ const connectDB = () => {
   db = mysql.createConnection({
     host: 'localhost',
     user: 'root',
-    password: '', // COLOCAR A SENHA AQUI
-    database: 'timeline_db'
+    password: 'root', 
+    database: 'MarketMeet'
   });
 
   db.connect((err) => {
@@ -102,7 +102,7 @@ app.post('/api/users/create', checkDB, async (req, res) => {
     const senhaHash = await bcrypt.hash(senha, 10);
 
     const query = `
-      INSERT INTO users (name, email, password, birth_date) 
+      INSERT INTO account (username, email, password, birth_date) 
       VALUES (?, ?, ?, ?)
     `;
 

@@ -8,13 +8,18 @@
     "dev": "nodemon server.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": ["express", "mysql", "api", "timeline"],
+  "keywords": [
+    "express",
+    "mysql",
+    "api",
+    "timeline"
+  ],
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "bcryptjs": "^2.4.3",
     "express": "^5.1.0",
-    "mysql2": "^3.6.0",
-    "bcryptjs": "^2.4.3"
+    "mysql2": "^3.6.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"
