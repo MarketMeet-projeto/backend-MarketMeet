@@ -5,6 +5,8 @@
 const express = require('express');
 const mysql = require('mysql2');
 const bcrypt = require('bcryptjs');
+const cors = require('cors');
+app.use(cors());
 
 const app = express();
 const PORT = 3000;
