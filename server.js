@@ -5,10 +5,10 @@
 const express = require('express');
 const mysql = require('mysql2');
 const bcrypt = require('bcryptjs');
-const cors = require('cors');
+// const cors = require('cors');
 
 const app = express(); 
-app.use(cors());       
+// app.use(cors());       
 
 const PORT = 3000;
 
@@ -26,8 +26,9 @@ let dbConnected = false;
 const connectDB = () => {
   db = mysql.createConnection({
     host: 'localhost',
+    port: '3306',
     user: 'root',
-    password: 'root', 
+    password: 'root',
     database: 'MarketMeet'
   });
 
@@ -243,8 +244,4 @@ app.listen(PORT, '0.0.0.0',() => {
   console.log(`📍 Status: http://localhost:${PORT}/api/status`);
   console.log(`🧪 Teste: http://localhost:${PORT}/api/test`);
   
-  if (!dbConnected) {
-    console.log('⚠️  Aviso: Banco de dados não conectado');
-    console.log('💡 As rotas de usuário retornarão erro 503 até o banco estar disponível');
-  }
 });
