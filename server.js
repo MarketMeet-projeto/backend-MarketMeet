@@ -790,6 +790,95 @@ app.get('/api/categories', checkDB, (req, res) => {
   });
 });
 
+// ===========================================
+// ROTAS PARA TELA DE PERFIL
+// ===========================================
+
+// Rota para buscar dados do usuário (perfil)
+app.get('/api/users/profile/:userId', checkDB, async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const query = 'SELECT id, username, email, birth_date FROM account WHERE id = ?';
+
+    db.query(query, [userId], (err, results) => {
+      if (err) {
+        console.error('Erro ao buscar usuário:', err);
+        return res.status(500).json({ 
+          error: 'Erro interno do servidor' 
+        });
+      }
+
+      if (results.length === 0) {
+        return res.status(404).json({ 
+          error: 'Usuário não encontrado' 
+        });
+      }
+
+      res.status(200).json({
+        success: true,
+        user: results[0]
+      });
+    });
+
+  } catch (error) {
+    console.error('Erro ao buscar perfil:', error);
+    res.status(500).json({ 
+      error: 'Erro interno do servidor' 
+    });
+  }
+});
+
+// Rota para atualizar nome do usuário
+app.put('/api/users/update-name', checkDB, async (req, res) => {
+  try {
+    const { userId, novoNome } = req.body;
+
+    // Validação básica
+    if (!userId || !novoNome) {
+      return res.status(400).json({ 
+        error: 'ID do usuário e novo nome são obrigatórios' 
+      });
+    }
+
+    // Validar tamanho do nome
+    if (novoNome.trim().length < 3) {
+      return res.status(400).json({ 
+        error: 'O nome deve ter pelo menos 3 caracteres' 
+      });
+    }
+
+    const query = 'UPDATE account SET username = ? WHERE id = ?';
+
+    db.query(query, [novoNome.trim(), userId], (err, result) => {
+      if (err) {
+        console.error('Erro ao atualizar nome:', err);
+        return res.status(500).json({ 
+          error: 'Erro interno do servidor' 
+        });
+      }
+
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ 
+          error: 'Usuário não encontrado' 
+        });
+      }
+
+      res.status(200).json({
+        success: true,
+        message: 'Nome atualizado com sucesso!',
+        novoNome: novoNome.trim()
+      });
+    });
+
+  } catch (error) {
+    console.error('Erro ao atualizar nome:', error);
+    res.status(500).json({ 
+      error: 'Erro interno do servidor' 
+    });
+  }
+});
+
 
 // ===========================================
 // INICIALIZAÇÃO DO SERVIDOR
