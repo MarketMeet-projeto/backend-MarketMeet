@@ -5,10 +5,17 @@
 const express = require('express');
 const mysql = require('mysql2');
 const bcrypt = require('bcryptjs');
-// const cors = require('cors');
+const cors = require('cors');
 
 const app = express(); 
-// app.use(cors());       
+
+// Configuração do CORS
+app.use(cors({
+  origin: '*',
+  methods: '*',
+  allowedHeaders: '*',
+  credentials: false
+}));
 
 const PORT = 3000;
 
@@ -74,43 +81,79 @@ const checkDB = (req, res, next) => {
 
 // Rota de status da aplicação
 app.get('/api/status', (req, res) => {
-  res.json({
-    status: 'online',
-    timestamp: new Date().toISOString(),
-    database: dbConnected ? 'connected' : 'disconnected',
-    message: dbConnected ? 'Todos os serviços funcionando' : 'Banco de dados indisponível'
-  });
+  try {
+    res.json({
+      status: 'online',
+      timestamp: new Date().toISOString(),
+      database: dbConnected ? 'connected' : 'disconnected',
+      message: dbConnected ? 'Todos os serviços funcionando' : 'Banco de dados indisponível'
+    });
+  } catch (error) {
+    console.error('Erro ao verificar status:', error);
+    res.status(500).json({ 
+      error: 'Erro interno do servidor' 
+    });
+  }
 });
 
 // Rota de teste (não precisa do banco)
 app.get('/api/test', (req, res) => {
-  res.json({ 
-    message: 'API funcionando!', 
-    timestamp: new Date().toISOString() 
-  });
+  try {
+    res.json({ 
+      message: 'API funcionando!', 
+      timestamp: new Date().toISOString() 
+    });
+  } catch (error) {
+    console.error('Erro na rota de teste:', error);
+    res.status(500).json({ 
+      error: 'Erro interno do servidor' 
+    });
+  }
 });
 
 // Criar usuário (requer banco)
 app.post('/api/users/create', checkDB, async (req, res) => {
   try {
-    const { nome, data_nascimento, email, senha } = req.body;
+    const { username, birth_date, email, password } = req.body;
 
     // Validação básica
-    if (!nome || !email || !senha || !data_nascimento) {
+    if (!username || !email || !password || !birth_date) {
       return res.status(400).json({ 
         error: 'Todos os campos são obrigatórios' 
       });
     }
 
+    // Validar e converter o formato da data
+    const dataRegex = /^(\d{2})\/(\d{2})\/(\d{4})$/;
+    const match = birth_date.match(dataRegex);
+    
+    if (!match) {
+      return res.status(400).json({
+        error: 'Formato de data inválido. Use DD/MM/YYYY'
+      });
+    }
+
+    // Converter de DD/MM/YYYY para YYYY-MM-DD
+    const [, dia, mes, ano] = match;
+    const dataBanco = `${ano}-${mes}-${dia}`;
+
+    // Validar se é uma data válida
+    const dataObj = new Date(dataBanco);
+    if (isNaN(dataObj.getTime())) {
+      return res.status(400).json({
+        error: 'Data inválida'
+      });
+    }
+
     // Criptografar senha
-    const senhaHash = await bcrypt.hash(senha, 10);
+    const senhaHash = await bcrypt.hash(password, 10);
 
     const query = `
       INSERT INTO account (username, email, password, birth_date) 
       VALUES (?, ?, ?, ?)
     `;
 
-    db.query(query, [nome, email, senhaHash, data_nascimento], (err, result) => {
+    db.query(query, [username, email, senhaHash, dataBanco], (err, result) => {
       if (err) {
         console.error('Erro ao criar usuário:', err);
         
@@ -153,7 +196,7 @@ app.post('/api/users/login', checkDB, async (req, res) => {
       });
     }
 
-    const query = 'SELECT * FROM usuarios WHERE email = ?';
+    const query = 'SELECT * FROM account WHERE email = ?';
     
     db.query(query, [email], async (err, results) => {
       if (err) {
@@ -169,10 +212,10 @@ app.post('/api/users/login', checkDB, async (req, res) => {
         });
       }
 
-      const usuario = results[0];
+      const account = results[0];
       
       // Verificar senha
-      const senhaValida = await bcrypt.compare(senha, usuario.senha);
+      const senhaValida = await bcrypt.compare(senha, account.senha);
       
       if (!senhaValida) {
         return res.status(401).json({ 
@@ -185,10 +228,10 @@ app.post('/api/users/login', checkDB, async (req, res) => {
         success: true,
         message: 'Login realizado com sucesso!',
         user: {
-          id: usuario.id,
-          nome: usuario.nome,
-          email: usuario.email,
-          data_nascimento: usuario.data_nascimento
+          id_user: account.id_user,
+          username: account.username,
+          email: account.email,
+          birth_date: account.birth_date
         }
       });
     });
@@ -203,29 +246,36 @@ app.post('/api/users/login', checkDB, async (req, res) => {
 
 // Buscar usuário por ID (requer banco)
 app.get('/api/users/:id', checkDB, (req, res) => {
-  const { id } = req.params;
+  try {
+    const { id } = req.params;
 
-  const query = 'SELECT id, nome, email, data_nascimento FROM usuarios WHERE id = ?';
-  
-  db.query(query, [id], (err, results) => {
-    if (err) {
-      console.error('Erro na consulta:', err);
-      return res.status(500).json({ 
-        error: 'Erro interno do servidor' 
+    const query = 'SELECT id_user, username, email, birth_date FROM account WHERE id_user = ?';
+    
+    db.query(query, [id], (err, results) => {
+      if (err) {
+        console.error('Erro na consulta:', err);
+        return res.status(500).json({ 
+          error: 'Erro interno do servidor' 
+        });
+      }
+
+      if (results.length === 0) {
+        return res.status(404).json({ 
+          error: 'Usuário não encontrado' 
+        });
+      }
+
+      res.json({
+        success: true,
+        user: results[0]
       });
-    }
-
-    if (results.length === 0) {
-      return res.status(404).json({ 
-        error: 'Usuário não encontrado' 
-      });
-    }
-
-    res.json({
-      success: true,
-      user: results[0]
     });
-  });
+  } catch (error) {
+    console.error('Erro ao buscar usuário:', error);
+    res.status(500).json({ 
+      error: 'Erro interno do servidor' 
+    });
+  }
 });
 
 // Rota de teste
@@ -289,40 +339,47 @@ app.post('/api/posts/create', checkDB, (req, res) => {
 
 // Buscar todos os reviews para o timeline (ordenados por data)
 app.get('/api/posts/timeline', checkDB, (req, res) => {
-  const query = `
-    SELECT 
-      p.id_post,
-      p.rating,
-      p.caption,
-      p.category,
-      p.product_photo,
-      p.product_url,
-      p.created_at,
-      a.username,
-      a.id_user,
-      COUNT(DISTINCT l.id_like) as likes_count,
-      COUNT(DISTINCT c.id_comment) as comments_count
-    FROM post p
-    LEFT JOIN account a ON p.id_user = a.id_user
-    LEFT JOIN likes l ON p.id_post = l.id_post
-    LEFT JOIN comments c ON p.id_post = c.id_post
-    GROUP BY p.id_post
-    ORDER BY p.created_at DESC
-  `;
+  try {
+    const query = `
+      SELECT 
+        p.id_post,
+        p.rating,
+        p.caption,
+        p.category,
+        p.product_photo,
+        p.product_url,
+        p.created_at,
+        a.username,
+        a.id_user,
+        COUNT(DISTINCT l.id_like) as likes_count,
+        COUNT(DISTINCT c.id_comment) as comments_count
+      FROM post p
+      LEFT JOIN account a ON p.id_user = a.id_user
+      LEFT JOIN likes l ON p.id_post = l.id_post
+      LEFT JOIN comments c ON p.id_post = c.id_post
+      GROUP BY p.id_post
+      ORDER BY p.created_at DESC
+    `;
 
-  db.query(query, (err, results) => {
-    if (err) {
-      console.error('Erro ao buscar timeline:', err);
-      return res.status(500).json({ 
-        error: 'Erro interno do servidor' 
+    db.query(query, (err, results) => {
+      if (err) {
+        console.error('Erro ao buscar timeline:', err);
+        return res.status(500).json({ 
+          error: 'Erro interno do servidor' 
+        });
+      }
+
+      res.json({
+        success: true,
+        posts: results
       });
-    }
-
-    res.json({
-      success: true,
-      posts: results
     });
-  });
+  } catch (error) {
+    console.error('Erro ao buscar timeline:', error);
+    res.status(500).json({ 
+      error: 'Erro interno do servidor' 
+    });
+  }
 });
 
 // Buscar reviews de um usuário específico
@@ -459,64 +516,71 @@ app.delete('/api/posts/:postId', checkDB, (req, res) => {
 
 // Curtir/Descurtir review
 app.post('/api/posts/:postId/like', checkDB, (req, res) => {
-  const { postId } = req.params;
-  const { id_user } = req.body;
+  try {
+    const { postId } = req.params;
+    const { id_user } = req.body;
 
-  if (!id_user) {
-    return res.status(400).json({ 
-      error: 'ID do usuário é obrigatório' 
+    if (!id_user) {
+      return res.status(400).json({ 
+        error: 'ID do usuário é obrigatório' 
+      });
+    }
+
+    // Verificar se o usuário já curtiu
+    const checkQuery = 'SELECT id_like FROM likes WHERE id_post = ? AND id_user = ?';
+    
+    db.query(checkQuery, [postId, id_user], (err, results) => {
+      if (err) {
+        console.error('Erro ao verificar like:', err);
+        return res.status(500).json({ 
+          error: 'Erro interno do servidor' 
+        });
+      }
+
+      if (results.length > 0) {
+        // Se já curtiu, remove a curtida
+        const deleteQuery = 'DELETE FROM likes WHERE id_post = ? AND id_user = ?';
+        
+        db.query(deleteQuery, [postId, id_user], (err) => {
+          if (err) {
+            console.error('Erro ao remover like:', err);
+            return res.status(500).json({ 
+              error: 'Erro interno do servidor' 
+            });
+          }
+
+          res.json({
+            success: true,
+            message: 'Curtida removida',
+            action: 'unliked'
+          });
+        });
+      } else {
+        // Se não curtiu, adiciona a curtida
+        const insertQuery = 'INSERT INTO likes (id_post, id_user, created_at) VALUES (?, ?, NOW())';
+        
+        db.query(insertQuery, [postId, id_user], (err) => {
+          if (err) {
+            console.error('Erro ao adicionar like:', err);
+            return res.status(500).json({ 
+              error: 'Erro interno do servidor' 
+            });
+          }
+
+          res.json({
+            success: true,
+            message: 'Review curtido',
+            action: 'liked'
+          });
+        });
+      }
+    });
+  } catch (error) {
+    console.error('Erro ao processar curtida:', error);
+    res.status(500).json({ 
+      error: 'Erro interno do servidor' 
     });
   }
-
-  // Verificar se o usuário já curtiu
-  const checkQuery = 'SELECT id_like FROM likes WHERE id_post = ? AND id_user = ?';
-  
-  db.query(checkQuery, [postId, id_user], (err, results) => {
-    if (err) {
-      console.error('Erro ao verificar like:', err);
-      return res.status(500).json({ 
-        error: 'Erro interno do servidor' 
-      });
-    }
-
-    if (results.length > 0) {
-      // Se já curtiu, remove a curtida
-      const deleteQuery = 'DELETE FROM likes WHERE id_post = ? AND id_user = ?';
-      
-      db.query(deleteQuery, [postId, id_user], (err) => {
-        if (err) {
-          console.error('Erro ao remover like:', err);
-          return res.status(500).json({ 
-            error: 'Erro interno do servidor' 
-          });
-        }
-
-        res.json({
-          success: true,
-          message: 'Curtida removida',
-          action: 'unliked'
-        });
-      });
-    } else {
-      // Se não curtiu, adiciona a curtida
-      const insertQuery = 'INSERT INTO likes (id_post, id_user, created_at) VALUES (?, ?, NOW())';
-      
-      db.query(insertQuery, [postId, id_user], (err) => {
-        if (err) {
-          console.error('Erro ao adicionar like:', err);
-          return res.status(500).json({ 
-            error: 'Erro interno do servidor' 
-          });
-        }
-
-        res.json({
-          success: true,
-          message: 'Review curtido',
-          action: 'liked'
-        });
-      });
-    }
-  });
 });
 
 // Verificar se usuário curtiu um review específico
@@ -553,34 +617,41 @@ app.get('/api/posts/:postId/like-status', checkDB, (req, res) => {
 
 // Adicionar comentário
 app.post('/api/posts/:postId/comments', checkDB, (req, res) => {
-  const { postId } = req.params;
-  const { id_user, comment_text } = req.body;
+  try {
+    const { postId } = req.params;
+    const { id_user, comment_text } = req.body;
 
-  if (!id_user || !comment_text) {
-    return res.status(400).json({ 
-      error: 'ID do usuário e texto do comentário são obrigatórios' 
-    });
-  }
-
-  const query = `
-    INSERT INTO comments (id_post, id_user, comment_text, created_at) 
-    VALUES (?, ?, ?, NOW())
-  `;
-
-  db.query(query, [postId, id_user, comment_text], (err, result) => {
-    if (err) {
-      console.error('Erro ao adicionar comentário:', err);
-      return res.status(500).json({ 
-        error: 'Erro interno do servidor' 
+    if (!id_user || !comment_text) {
+      return res.status(400).json({ 
+        error: 'ID do usuário e texto do comentário são obrigatórios' 
       });
     }
 
-    res.status(201).json({
-      success: true,
-      message: 'Comentário adicionado com sucesso!',
-      commentId: result.insertId
+    const query = `
+      INSERT INTO comments (id_post, id_user, comment_text, created_at) 
+      VALUES (?, ?, ?, NOW())
+    `;
+
+    db.query(query, [postId, id_user, comment_text], (err, result) => {
+      if (err) {
+        console.error('Erro ao adicionar comentário:', err);
+        return res.status(500).json({ 
+          error: 'Erro interno do servidor' 
+        });
+      }
+
+      res.status(201).json({
+        success: true,
+        message: 'Comentário adicionado com sucesso!',
+        commentId: result.insertId
+      });
     });
-  });
+  } catch (error) {
+    console.error('Erro ao processar adição de comentário:', error);
+    res.status(500).json({ 
+      error: 'Erro interno do servidor' 
+    });
+  }
 });
 
 // Buscar comentários de um review
@@ -668,27 +739,34 @@ app.delete('/api/posts/:postId/comments/:commentId', checkDB, (req, res) => {
 
 // Obter estatísticas de um review
 app.get('/api/posts/:postId/stats', checkDB, (req, res) => {
-  const { postId } = req.params;
+  try {
+    const { postId } = req.params;
 
-  const query = `
-    SELECT 
-      (SELECT COUNT(*) FROM likes WHERE id_post = ?) as likes_count,
-      (SELECT COUNT(*) FROM comments WHERE id_post = ?) as comments_count
-  `;
+    const query = `
+      SELECT 
+        (SELECT COUNT(*) FROM likes WHERE id_post = ?) as likes_count,
+        (SELECT COUNT(*) FROM comments WHERE id_post = ?) as comments_count
+    `;
 
-  db.query(query, [postId, postId], (err, results) => {
-    if (err) {
-      console.error('Erro ao buscar estatísticas:', err);
-      return res.status(500).json({ 
-        error: 'Erro interno do servidor' 
+    db.query(query, [postId, postId], (err, results) => {
+      if (err) {
+        console.error('Erro ao buscar estatísticas:', err);
+        return res.status(500).json({ 
+          error: 'Erro interno do servidor' 
+        });
+      }
+
+      res.json({
+        success: true,
+        stats: results[0]
       });
-    }
-
-    res.json({
-      success: true,
-      stats: results[0]
     });
-  });
+  } catch (error) {
+    console.error('Erro ao processar estatísticas:', error);
+    res.status(500).json({ 
+      error: 'Erro interno do servidor' 
+    });
+  }
 });
 
 // Buscar usuários que curtiram um review
@@ -829,7 +907,7 @@ app.get('/api/users/profile/:userId', checkDB, async (req, res) => {
   }
 });
 
-// Rota para atualizar nome do usuário
+// Rota para atualizar username do usuário
 app.put('/api/users/update-name', checkDB, async (req, res) => {
   try {
     const { userId, novoNome } = req.body;
@@ -837,14 +915,14 @@ app.put('/api/users/update-name', checkDB, async (req, res) => {
     // Validação básica
     if (!userId || !novoNome) {
       return res.status(400).json({ 
-        error: 'ID do usuário e novo nome são obrigatórios' 
+        error: 'ID do usuário e novo username são obrigatórios' 
       });
     }
 
-    // Validar tamanho do nome
+    // Validar tamanho do username
     if (novoNome.trim().length < 3) {
       return res.status(400).json({ 
-        error: 'O nome deve ter pelo menos 3 caracteres' 
+        error: 'O username deve ter pelo menos 3 caracteres' 
       });
     }
 
@@ -852,7 +930,7 @@ app.put('/api/users/update-name', checkDB, async (req, res) => {
 
     db.query(query, [novoNome.trim(), userId], (err, result) => {
       if (err) {
-        console.error('Erro ao atualizar nome:', err);
+        console.error('Erro ao atualizar username:', err);
         return res.status(500).json({ 
           error: 'Erro interno do servidor' 
         });
@@ -872,7 +950,7 @@ app.put('/api/users/update-name', checkDB, async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Erro ao atualizar nome:', error);
+    console.error('Erro ao atualizar username:', error);
     res.status(500).json({ 
       error: 'Erro interno do servidor' 
     });
