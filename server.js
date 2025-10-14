@@ -187,10 +187,10 @@ app.post('/api/users/create', checkDB, async (req, res) => {
 // Login de usuário (requer banco)
 app.post('/api/users/login', checkDB, async (req, res) => {
   try {
-    const { email, senha } = req.body;
+    const { email, password } = req.body;
 
     // Validação básica
-    if (!email || !senha) {
+    if (!email || !password) {
       return res.status(400).json({ 
         error: 'Email e senha são obrigatórios' 
       });
@@ -215,7 +215,7 @@ app.post('/api/users/login', checkDB, async (req, res) => {
       const account = results[0];
       
       // Verificar senha
-      const senhaValida = await bcrypt.compare(senha, account.senha);
+      const senhaValida = await bcrypt.compare(password, account.password);
       
       if (!senhaValida) {
         return res.status(401).json({ 
