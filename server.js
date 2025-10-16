@@ -196,6 +196,8 @@ app.post('/api/users/login', checkDB, async (req, res) => {
       });
     }
 
+    console.log('Tentativa de login:', { email }); // Log para debug
+
     const query = 'SELECT * FROM account WHERE email = ?';
     
     db.query(query, [email], async (err, results) => {
@@ -207,15 +209,22 @@ app.post('/api/users/login', checkDB, async (req, res) => {
       }
 
       if (results.length === 0) {
+        console.log('Usuário não encontrado:', email);
         return res.status(401).json({ 
           error: 'Email ou senha incorretos' 
         });
       }
 
       const account = results[0];
+      console.log('Conta encontrada:', { 
+        id: account.id_user, 
+        email: account.email,
+        hasPassword: !!account.password 
+      }); // Log para debug
       
       // Verificar senha
       const senhaValida = await bcrypt.compare(password, account.password);
+      console.log('Resultado da validação de senha:', senhaValida); // Log para debug
       
       if (!senhaValida) {
         return res.status(401).json({ 
