@@ -41,12 +41,12 @@ const connectDB = () => {
 
   db.connect((err) => {
     if (err) {
-      console.error('❌ Erro ao conectar MySQL:', err);
-      console.log('⚠️  Servidor iniciará sem banco de dados');
+      console.error('Erro ao conectar MySQL:', err);
+      console.log('Servidor iniciará sem banco de dados');
       dbConnected = false;
       return;
     }
-    console.log('✅ Conectado ao MySQL');
+    console.log('Conectado ao MySQL');
     dbConnected = true;
   });
 
@@ -54,7 +54,7 @@ const connectDB = () => {
   db.on('error', (err) => {
     console.error('Erro na conexão do banco:', err);
     if (err.code === 'PROTOCOL_CONNECTION_LOST') {
-      console.log('🔄 Tentando reconectar...');
+      console.log('Tentando reconectar...');
       setTimeout(connectDB, 2000);
     }
   });
@@ -971,8 +971,8 @@ app.put('/api/users/update-name', checkDB, async (req, res) => {
 // INICIALIZAÇÃO DO SERVIDOR
 // ===========================================
 app.listen(PORT, '0.0.0.0',() => {
-  console.log(`🚀 Servidor rodando na porta ${PORT}`);
-  console.log(`📍 Status: http://localhost:${PORT}/api/status`);
-  console.log(`🧪 Teste: http://localhost:${PORT}/api/test`);
+  console.log(`Servidor rodando na porta ${PORT}`);
+  console.log(`Status: http://localhost:${PORT}/api/status`);
+  console.log(`Teste: http://localhost:${PORT}/api/test`);
   
 });
