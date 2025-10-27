@@ -412,7 +412,7 @@ app.get('/api/posts/user/:userId', checkDB, (req, res) => {
     LEFT JOIN likes l ON p.id_post = l.id_post
     LEFT JOIN comments c ON p.id_post = c.id_post
     WHERE p.id_user = ?
-    GROUP BY p.id_post
+    GROUP BY p.id_post'
     ORDER BY p.created_at DESC
   `;
 
