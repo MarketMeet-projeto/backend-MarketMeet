@@ -1,115 +1,7 @@
-// ===========================================
-// server.js - Arquivo principal
-// ===========================================
-
-const express = require('express');
-const mysql = require('mysql2');
-const bcrypt = require('bcryptjs');
-const cors = require('cors');
-
-const app = express(); 
-
-// Configuração do CORS
-app.use(cors({
-  origin: '*',
-  methods: '*',
-  allowedHeaders: '*',
-  credentials: false
-}));
+// Arquivo de inicialização: delega para src/app.js e inicia o servidor
+const app = require('./src/app');
 
 const PORT = 3000;
-
-// ===========================================
-// MIDDLEWARES
-// ===========================================
-app.use(express.json());
-
-// ===========================================
-// CONFIGURAÇÃO DO BANCO DE DADOS
-// ===========================================
-let db;
-let dbConnected = false;
-
-const connectDB = () => {
-  db = mysql.createConnection({
-    host: 'localhost',
-    port: '3306',
-    user: 'root',
-    password: 'root',
-    database: 'MarketMeet'
-  });
-
-  db.connect((err) => {
-    if (err) {
-      console.error('Erro ao conectar MySQL:', err);
-      console.log('Servidor iniciará sem banco de dados');
-      dbConnected = false;
-      return;
-    }
-    console.log('Conectado ao MySQL');
-    dbConnected = true;
-  });
-
-  // Reconectar automaticamente se a conexão for perdida
-  db.on('error', (err) => {
-    console.error('Erro na conexão do banco:', err);
-    if (err.code === 'PROTOCOL_CONNECTION_LOST') {
-      console.log('Tentando reconectar...');
-      setTimeout(connectDB, 2000);
-    }
-  });
-};
-
-connectDB();
-
-// ===========================================
-// MIDDLEWARE PARA VERIFICAR CONEXÃO COM BANCO
-// ===========================================
-const checkDB = (req, res, next) => {
-  if (!dbConnected) {
-    return res.status(503).json({
-      error: 'Banco de dados indisponível',
-      message: 'O serviço está temporariamente indisponível. Tente novamente em alguns minutos.'
-    });
-  }
-  next();
-};
-
-// ===========================================
-// ROTAS
-// ===========================================
-
-// Rota de status da aplicação
-app.get('/api/status', (req, res) => {
-  try {
-    res.json({
-      status: 'online',
-      timestamp: new Date().toISOString(),
-      database: dbConnected ? 'connected' : 'disconnected',
-      message: dbConnected ? 'Todos os serviços funcionando' : 'Banco de dados indisponível'
-    });
-  } catch (error) {
-    console.error('Erro ao verificar status:', error);
-    res.status(500).json({ 
-      error: 'Erro interno do servidor' 
-    });
-  }
-});
-
-// Rota de teste (não precisa do banco)
-app.get('/api/test', (req, res) => {
-  try {
-    res.json({ 
-      message: 'API funcionando!', 
-      timestamp: new Date().toISOString() 
-    });
-  } catch (error) {
-    console.error('Erro na rota de teste:', error);
-    res.status(500).json({ 
-      error: 'Erro interno do servidor' 
-    });
-  }
-});
 
 // Criar usuário (requer banco)
 app.post('/api/users/create', checkDB, async (req, res) => {
@@ -970,9 +862,8 @@ app.put('/api/users/update-name', checkDB, async (req, res) => {
 // ===========================================
 // INICIALIZAÇÃO DO SERVIDOR
 // ===========================================
-app.listen(PORT, '0.0.0.0',() => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`Servidor rodando na porta ${PORT}`);
   console.log(`Status: http://localhost:${PORT}/api/status`);
   console.log(`Teste: http://localhost:${PORT}/api/test`);
-  
 });
