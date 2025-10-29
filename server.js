@@ -858,7 +858,6 @@ app.put('/api/users/update-name', checkDB, async (req, res) => {
   }
 });
 
-
 // ===========================================
 // INICIALIZAÇÃO DO SERVIDOR
 // ===========================================
@@ -866,4 +865,153 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`Servidor rodando na porta ${PORT}`);
   console.log(`Status: http://localhost:${PORT}/api/status`);
   console.log(`Teste: http://localhost:${PORT}/api/test`);
+});
+
+// ===========================================
+// tela de perfil, updates/ atualizar dados do usuário
+// ===========================================
+
+
+app.put('/api/users/update', checkDB, async (req, res) => {
+  try {
+    const { id_user, username, birth_date, email, password} = req.body;
+
+    // Validação básica
+    if (!id_user) {
+      return res.status(400).json({
+        error: 'ID do usuário é obrigatório'
+      });
+    }
+
+    // Iniciar construção da query dinâmica
+    let updateFields = [];
+    let queryParams = [];
+
+    // Adicionar campos que foram fornecidos
+    if (username) {
+      if (username.trim().length < 3) {
+        return res.status(400).json({
+          error: 'Username deve ter pelo menos 3 caracteres'
+        });
+      }
+      updateFields.push('username = ?');
+      queryParams.push(username.trim());
+    }
+
+    if (email) {
+      // Validação básica de email
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({
+          error: 'Email inválido'
+        });
+      }
+      updateFields.push('email = ?');
+      queryParams.push(email.toLowerCase());
+    }
+
+    if (birth_date) {
+      // Validar e converter o formato da data
+      const dataRegex = /^(\d{2})\/(\d{2})\/(\d{4})$/;
+      const match = birth_date.match(dataRegex);
+      
+      if (!match) {
+        return res.status(400).json({
+          error: 'Formato de data inválido. Use DD/MM/YYYY'
+        });
+      }
+
+      const [, dia, mes, ano] = match;
+      const dataBanco = `${ano}-${mes}-${dia}`;
+      
+      // Validar se é uma data válida
+      const dataObj = new Date(dataBanco);
+      if (isNaN(dataObj.getTime())) {
+        return res.status(400).json({
+          error: 'Data inválida'
+        });
+      }
+
+      updateFields.push('birth_date = ?');
+      queryParams.push(dataBanco);
+    }
+
+    if (password) {
+      if (password.length < 6) {
+        return res.status(400).json({
+          error: 'Senha deve ter pelo menos 6 caracteres'
+        });
+      }
+      const senhaHash = await bcrypt.hash(password, 10);
+      updateFields.push('password = ?');
+      queryParams.push(senhaHash);
+    }
+    
+    // Se nenhum campo foi fornecido para atualização
+    if (updateFields.length === 0) {
+      return res.status(400).json({
+        error: 'Nenhum campo fornecido para atualização'
+      });
+    }
+
+    // Adicionar id_user aos parâmetros
+    queryParams.push(id_user);
+
+    // Construir e executar a query
+    const query = `
+      UPDATE account 
+      SET ${updateFields.join(', ')}
+      WHERE id_user = ?
+    `;
+
+    db.query(query, queryParams, (err, result) => {
+      if (err) {
+        console.error('Erro ao atualizar usuário:', err);
+        
+        // Verificar se é erro de email duplicado
+        if (err.code === 'ER_DUP_ENTRY') {
+          return res.status(400).json({
+            error: 'Este email já está em uso'
+          });
+        }
+        
+        return res.status(500).json({
+          error: 'Erro interno do servidor'
+        });
+      }
+
+      if (result.affectedRows === 0) {
+        return res.status(404).json({
+          error: 'Usuário não encontrado'
+        });
+      }
+
+      // Buscar dados atualizados do usuário
+      const selectQuery = `
+        SELECT id_user, username, email, birth_date, profile_photo 
+        FROM account 
+        WHERE id_user = ?
+      `;
+
+      db.query(selectQuery, [id_user], (err, results) => {
+        if (err) {
+          return res.status(500).json({
+            error: 'Erro ao buscar dados atualizados'
+          });
+        }
+
+        res.json({
+          success: true,
+          message: 'Perfil atualizado com sucesso!',
+          user: results[0]
+        });
+      });
+    });
+
+  } catch (error) {
+    console.error('Erro na atualização do perfil:', error);
+    res.status(500).json({
+      error: 'Erro interno do servidor'
+    });
+  }
 });
