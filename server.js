@@ -1,7 +1,15 @@
 // Arquivo de inicialização: delega para src/app.js e inicia o servidor
 const app = require('./src/app');
 
+// Importar rotas
+const userRoutes = require('./src/routes/users');
+const postRoutes = require('./src/routes/posts-rxjs');
+
 const PORT = 3000;
+
+// Aplicar rotas
+userRoutes(app);
+postRoutes(app);
 
 // Rota de teste
 app.get('/api/test', (req, res) => {

@@ -1,134 +1,47 @@
+const PostService = require('../services/post.service');
+const authMiddleware = require('../middlewares/auth');
+
 module.exports = (app) => {
   const { getDB, checkDB } = require('../db');
-  const authMiddleware = require('../middlewares/auth');
+  const db = getDB();
+  const postService = new PostService(db);
 
-  // Criar nova publicação/review
+  // Criar nova publicação/review com RxJS
   app.post('/api/posts/create', checkDB, authMiddleware, (req, res) => {
-    try {
-      const { id_user, rating, caption, category, product_photo, product_url } = req.body;
+    const userId = req.user.id_user;
+    const postData = req.body;
 
-      // Validação: apenas id_user é obrigatório
-      if (!id_user) {
-        return res.status(400).json({
-          error: 'ID do usuário é obrigatório'
-        });
-      }
-
-      // Validar rating se fornecido (deve ser entre 1 e 5)
-      if (rating !== undefined && (rating < 1 || rating > 5)) {
-        return res.status(400).json({
-          error: 'Rating deve estar entre 1 e 5'
-        });
-      }
-
-      // Construir query dinamicamente baseado nos campos fornecidos
-      let fields = ['id_user', 'created_at'];
-      let placeholders = ['?', 'NOW()'];
-      let values = [id_user];
-
-      if (rating !== undefined) {
-        fields.push('rating');
-        placeholders.push('?');
-        values.push(rating);
-      }
-
-      if (caption !== undefined) {
-        fields.push('caption');
-        placeholders.push('?');
-        values.push(caption);
-      }
-
-      if (category !== undefined) {
-        fields.push('category');
-        placeholders.push('?');
-        values.push(category);
-      }
-
-      if (product_photo !== undefined) {
-        fields.push('product_photo');
-        placeholders.push('?');
-        values.push(product_photo);
-      }
-
-      if (product_url !== undefined) {
-        fields.push('product_url');
-        placeholders.push('?');
-        values.push(product_url);
-      }
-
-      const query = `
-        INSERT INTO post (${fields.join(', ')}) 
-        VALUES (${placeholders.join(', ')})
-      `;
-
-      const db = getDB();
-      db.query(query, values, (err, result) => {
-        if (err) {
-          console.error('Erro ao criar review:', err);
-          return res.status(500).json({
-            error: 'Erro interno do servidor'
-          });
-        }
-
+    postService.createPost(userId, postData).subscribe({
+      next: (newPost) => {
         res.status(201).json({
           success: true,
           message: 'Review criado com sucesso!',
-          postId: result.insertId
+          postId: newPost.id_post
         });
-      });
-
-    } catch (error) {
-      console.error('Erro ao criar review:', error);
-      res.status(500).json({
-        error: 'Erro interno do servidor'
-      });
-    }
+      },
+      error: (err) => {
+        res.status(400).json({
+          error: err.message || 'Erro ao criar review'
+        });
+      }
+    });
   });
 
-  // Buscar todos os reviews para o timeline (ordenados por data)
+  // Buscar todos os reviews para o timeline com RxJS
   app.get('/api/posts/timeline', checkDB, (req, res) => {
-    try {
-      const query = `
-        SELECT 
-          p.id_post,
-          p.rating,
-          p.caption,
-          p.category,
-          p.product_photo,
-          p.product_url,
-          p.created_at,
-          a.username,
-          a.id_user,
-          COUNT(DISTINCT l.id_like) as likes_count,
-          COUNT(DISTINCT c.id_comment) as comments_count
-        FROM post p
-        LEFT JOIN account a ON p.id_user = a.id_user
-        LEFT JOIN likes l ON p.id_post = l.id_post
-        LEFT JOIN comments c ON p.id_post = c.id_post
-        GROUP BY p.id_post
-        ORDER BY p.created_at DESC
-      `;
-
-      const db = getDB();
-      db.query(query, (err, results) => {
-        if (err) {
-          console.error('Erro ao buscar timeline:', err);
-          return res.status(500).json({
-            error: 'Erro interno do servidor'
-          });
-        }
-
+    postService.getPostsTimeline().subscribe({
+      next: (posts) => {
         res.json({
           success: true,
-          posts: results
+          posts: posts
         });
-      });
-    } catch (error) {
-      console.error('Erro ao buscar timeline:', error);
-      res.status(500).json({
-        error: 'Erro interno do servidor'
-      });
-    }
+      },
+      error: (err) => {
+        res.status(500).json({
+          error: err.message || 'Erro ao buscar timeline'
+        });
+      }
+    });
   });
 
   // Buscar reviews de um usuário específico
@@ -157,7 +70,6 @@ module.exports = (app) => {
       ORDER BY p.created_at DESC
     `;
 
-    const db = getDB();
     db.query(query, [userId], (err, results) => {
       if (err) {
         console.error('Erro ao buscar reviews do usuário:', err);
@@ -199,7 +111,6 @@ module.exports = (app) => {
       ORDER BY p.created_at DESC
     `;
 
-    const db = getDB();
     db.query(query, [category], (err, results) => {
       if (err) {
         console.error('Erro ao buscar reviews por categoria:', err);
@@ -216,13 +127,12 @@ module.exports = (app) => {
   });
 
   // Deletar review (apenas o autor pode deletar)
-  app.delete('/api/posts/:postId', checkDB, (req, res) => {
+  app.delete('/api/posts/:postId', checkDB, authMiddleware, (req, res) => {
     const { postId } = req.params;
-    const { id_user } = req.body;
+    const id_user = req.user.id_user;
 
     // Verificar se o post pertence ao usuário
     const checkQuery = 'SELECT id_user FROM post WHERE id_post = ?';
-    const db = getDB();
     db.query(checkQuery, [postId], (err, results) => {
       if (err) {
         console.error('Erro ao verificar post:', err);
@@ -265,71 +175,25 @@ module.exports = (app) => {
   // ROTAS PARA CURTIDAS (LIKES)
   // ===========================================
 
-  // Curtir/Descurtir review
-  app.post('/api/posts/:postId/like', checkDB, (req, res) => {
-    try {
-      const { postId } = req.params;
-      const { id_user } = req.body;
+  // Curtir/Descurtir review com RxJS
+  app.post('/api/posts/:postId/like', checkDB, authMiddleware, (req, res) => {
+    const { postId } = req.params;
+    const userId = req.user.id_user;
 
-      if (!id_user) {
-        return res.status(400).json({
-          error: 'ID do usuário é obrigatório'
+    postService.toggleLike(postId, userId).subscribe({
+      next: (result) => {
+        res.json({
+          success: true,
+          message: result.action === 'liked' ? 'Review curtido' : 'Curtida removida',
+          action: result.action
+        });
+      },
+      error: (err) => {
+        res.status(400).json({
+          error: err.message || 'Erro ao processar curtida'
         });
       }
-
-      // Verificar se o usuário já curtiu
-      const checkQuery = 'SELECT id_like FROM likes WHERE id_post = ? AND id_user = ?';
-      const db = getDB();
-      db.query(checkQuery, [postId, id_user], (err, results) => {
-        if (err) {
-          console.error('Erro ao verificar like:', err);
-          return res.status(500).json({
-            error: 'Erro interno do servidor'
-          });
-        }
-
-        if (results.length > 0) {
-          // Se já curtiu, remove a curtida
-          const deleteQuery = 'DELETE FROM likes WHERE id_post = ? AND id_user = ?';
-          db.query(deleteQuery, [postId, id_user], (err) => {
-            if (err) {
-              console.error('Erro ao remover like:', err);
-              return res.status(500).json({
-                error: 'Erro interno do servidor'
-              });
-            }
-
-            res.json({
-              success: true,
-              message: 'Curtida removida',
-              action: 'unliked'
-            });
-          });
-        } else {
-          // Se não curtiu, adiciona a curtida
-          const insertQuery = 'INSERT INTO likes (id_post, id_user, created_at) VALUES (?, ?, NOW())';
-          db.query(insertQuery, [postId, id_user], (err) => {
-            if (err) {
-              console.error('Erro ao adicionar like:', err);
-              return res.status(500).json({
-                error: 'Erro interno do servidor'
-              });
-            }
-
-            res.json({
-              success: true,
-              message: 'Review curtido',
-              action: 'liked'
-            });
-          });
-        }
-      });
-    } catch (error) {
-      console.error('Erro ao processar curtida:', error);
-      res.status(500).json({
-        error: 'Erro interno do servidor'
-      });
-    }
+    });
   });
 
   // Verificar se usuário curtiu um review específico
@@ -344,7 +208,6 @@ module.exports = (app) => {
     }
 
     const query = 'SELECT id_like FROM likes WHERE id_post = ? AND id_user = ?';
-    const db = getDB();
     db.query(query, [postId, id_user], (err, results) => {
       if (err) {
         console.error('Erro ao verificar status do like:', err);
@@ -364,48 +227,26 @@ module.exports = (app) => {
   // ROTAS PARA COMENTÁRIOS
   // ===========================================
 
-  // Adicionar comentário
-  app.post('/api/posts/:postId/comments', checkDB, (req, res) => {
-    try {
-      const { postId } = req.params;
-      const { id_user, comment_text } = req.body;
+  // Adicionar comentário com RxJS
+  app.post('/api/posts/:postId/comments', checkDB, authMiddleware, (req, res) => {
+    const { postId } = req.params;
+    const userId = req.user.id_user;
+    const { comment_text } = req.body;
 
-      // Validação: id_user é obrigatório
-      if (!id_user) {
-        return res.status(400).json({
-          error: 'ID do usuário é obrigatório'
-        });
-      }
-
-      // Se comment_text não for fornecido, criar comentário vazio
-      const comment = comment_text || '';
-
-      const query = `
-        INSERT INTO comments (id_post, id_user, comment_text, created_at) 
-        VALUES (?, ?, ?, NOW())
-      `;
-
-      const db = getDB();
-      db.query(query, [postId, id_user, comment], (err, result) => {
-        if (err) {
-          console.error('Erro ao adicionar comentário:', err);
-          return res.status(500).json({
-            error: 'Erro interno do servidor'
-          });
-        }
-
+    postService.addComment(postId, userId, comment_text).subscribe({
+      next: (comment) => {
         res.status(201).json({
           success: true,
           message: 'Comentário adicionado com sucesso!',
-          commentId: result.insertId
+          commentId: comment.id_comment
         });
-      });
-    } catch (error) {
-      console.error('Erro ao processar adição de comentário:', error);
-      res.status(500).json({
-        error: 'Erro interno do servidor'
-      });
-    }
+      },
+      error: (err) => {
+        res.status(400).json({
+          error: err.message || 'Erro ao adicionar comentário'
+        });
+      }
+    });
   });
 
   // Buscar comentários de um review
@@ -425,7 +266,6 @@ module.exports = (app) => {
       ORDER BY c.created_at ASC
     `;
 
-    const db = getDB();
     db.query(query, [postId], (err, results) => {
       if (err) {
         console.error('Erro ao buscar comentários:', err);
@@ -442,10 +282,9 @@ module.exports = (app) => {
   });
 
   // Deletar comentário (apenas o autor pode deletar)
-  app.delete('/api/posts/:postId/comments/:commentId', checkDB, (req, res) => {
+  app.delete('/api/posts/:postId/comments/:commentId', checkDB, authMiddleware, (req, res) => {
     const { commentId } = req.params;
-    const { id_user } = req.body;
-    const db = getDB();
+    const id_user = req.user.id_user;
 
     // Verificar se o comentário pertence ao usuário
     const checkQuery = 'SELECT id_user FROM comments WHERE id_comment = ?';
@@ -502,7 +341,6 @@ module.exports = (app) => {
           (SELECT COUNT(*) FROM comments WHERE id_post = ?) as comments_count
       `;
 
-      const db = getDB();
       db.query(query, [postId, postId], (err, results) => {
         if (err) {
           console.error('Erro ao buscar estatísticas:', err);
@@ -539,7 +377,6 @@ module.exports = (app) => {
       ORDER BY l.created_at DESC
     `;
 
-    const db = getDB();
     db.query(query, [postId], (err, results) => {
       if (err) {
         console.error('Erro ao buscar curtidas:', err);
@@ -588,7 +425,6 @@ module.exports = (app) => {
       ORDER BY p.created_at DESC
     `;
 
-    const db = getDB();
     db.query(query, [rating], (err, results) => {
       if (err) {
         console.error('Erro ao buscar reviews por rating:', err);
@@ -607,7 +443,7 @@ module.exports = (app) => {
   // Buscar categorias disponíveis
   app.get('/api/categories', checkDB, (req, res) => {
     const query = 'SELECT DISTINCT category FROM post ORDER BY category ASC';
-    const db = getDB();
+
     db.query(query, (err, results) => {
       if (err) {
         console.error('Erro ao buscar categorias:', err);

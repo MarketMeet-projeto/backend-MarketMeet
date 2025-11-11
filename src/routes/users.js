@@ -1,7 +1,11 @@
 const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const AuthService = require('../services/auth.service');
 
 module.exports = (app) => {
   const { getDB, checkDB } = require('../db');
+  const db = getDB();
+  const authService = new AuthService(db);
 
   // Criar usuário (requer banco)
   app.post('/api/users/create', checkDB, async (req, res) => {
@@ -78,73 +82,26 @@ module.exports = (app) => {
   });
 
   //////////////////////////////////////////TEMPORARIAMENTE LIMITADO////////////////////////////////////////////////////
-  // Login de usuário (requer banco)
+  // Login de usuário com RxJS
   app.post('/api/users/login', checkDB, async (req, res) => {
-    try {
-      const { email, password } = req.body;
+    const { email, password } = req.body;
 
-      // Validação básica
-      if (!email || !password) {
-        return res.status(400).json({
-          error: 'Email e senha são obrigatórios'
-        });
-      }
-
-      console.log('Tentativa de login:', { email }); // Log para debug
-
-      const query = 'SELECT * FROM account WHERE email = ?';
-      const db = getDB();
-      db.query(query, [email], async (err, results) => {
-        if (err) {
-          console.error('Erro na consulta:', err);
-          return res.status(500).json({
-            error: 'Erro interno do servidor'
-          });
-        }
-
-        if (results.length === 0) {
-          console.log('Usuário não encontrado:', email);
-          return res.status(401).json({
-            error: 'Email ou senha incorretos'
-          });
-        }
-
-        const account = results[0];
-        console.log('Conta encontrada:', {
-          id: account.id_user,
-          email: account.email,
-          hasPassword: !!account.password
-        }); // Log para debug
-        
-        // Verificar senha
-        const senhaValida = await bcrypt.compare(password, account.password);
-        console.log('Resultado da validação de senha:', senhaValida); // Log para debug
-        
-        if (!senhaValida) {
-          return res.status(401).json({
-            error: 'Email ou senha incorretos'
-          });
-        }
-
-        // Login realizado com sucesso
+    authService.loginUser(email, password).subscribe({
+      next: (result) => {
         res.json({
           success: true,
           message: 'Login realizado com sucesso!',
-          user: {
-            id_user: account.id_user,
-            username: account.username,
-            email: account.email,
-            birth_date: account.birth_date
-          }
+          token: result.token,
+          user: result.user
         });
-      });
-
-    } catch (error) {
-      console.error('Erro no login:', error);
-      res.status(500).json({
-        error: 'Erro interno do servidor'
-      });
-    }
+      },
+      error: (err) => {
+        console.error('Erro no login:', err);
+        res.status(401).json({
+          error: err.message || 'Erro ao fazer login'
+        });
+      }
+    });
   });
 
   // Buscar usuário por ID (requer banco)
