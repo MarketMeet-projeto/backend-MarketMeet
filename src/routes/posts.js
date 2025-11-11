@@ -5,12 +5,14 @@ module.exports = (app) => {
   // Criar nova publicação/review
   app.post('/api/posts/create', checkDB, authMiddleware, (req, res) => {
     try {
-      const { id_user, rating, caption, category, product_photo, product_url } = req.body;
+      // 🔐 Pegar id_user do JWT, não do body (segurança)
+      const id_user = req.user.id_user;
+      const { rating, caption, category, product_photo, product_url } = req.body;
 
-      // Validação: apenas id_user é obrigatório
+      // Validação: id_user vem do JWT autenticado
       if (!id_user) {
-        return res.status(400).json({
-          error: 'ID do usuário é obrigatório'
+        return res.status(401).json({
+          error: 'Usuário não autenticado'
         });
       }
 
@@ -266,14 +268,15 @@ module.exports = (app) => {
   // ===========================================
 
   // Curtir/Descurtir review
-  app.post('/api/posts/:postId/like', checkDB, (req, res) => {
+  app.post('/api/posts/:postId/like', checkDB, authMiddleware, (req, res) => {
     try {
       const { postId } = req.params;
-      const { id_user } = req.body;
+      // 🔐 Pegar id_user do JWT, não do body
+      const id_user = req.user.id_user;
 
       if (!id_user) {
-        return res.status(400).json({
-          error: 'ID do usuário é obrigatório'
+        return res.status(401).json({
+          error: 'Usuário não autenticado'
         });
       }
 
@@ -365,15 +368,17 @@ module.exports = (app) => {
   // ===========================================
 
   // Adicionar comentário
-  app.post('/api/posts/:postId/comments', checkDB, (req, res) => {
+  app.post('/api/posts/:postId/comments', checkDB, authMiddleware, (req, res) => {
     try {
       const { postId } = req.params;
-      const { id_user, comment_text } = req.body;
+      // 🔐 Pegar id_user do JWT, não do body
+      const id_user = req.user.id_user;
+      const { comment_text } = req.body;
 
-      // Validação: id_user é obrigatório
+      // Validação: id_user vem do JWT autenticado
       if (!id_user) {
-        return res.status(400).json({
-          error: 'ID do usuário é obrigatório'
+        return res.status(401).json({
+          error: 'Usuário não autenticado'
         });
       }
 
