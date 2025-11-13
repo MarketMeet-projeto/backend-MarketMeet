@@ -10,30 +10,38 @@ module.exports = (app) => {
   // Criar usuário (requer banco)
   app.post('/api/users/create', checkDB, async (req, res) => {
     try {
-      const { username, birth_date, email, password } = req.body;
+      const {
+        full_name,
+        username,
+        birth_date,
+        phone,
+        email,
+        password,
+        profile_photo,
+        cnpj,
+        user_type
+      } = req.body;
 
-      // Validação básica
+      // Validação básica dos campos obrigatórios
       if (!username || !email || !password || !birth_date) {
         return res.status(400).json({
-          error: 'Todos os campos são obrigatórios'
+          error: 'username, email, password e birth_date são obrigatórios'
         });
       }
 
-      // Validar e converter o formato da data
+      // Validar e converter o formato da data DD/MM/YYYY -> YYYY-MM-DD
       const dataRegex = /^(\d{2})\/(\d{2})\/(\d{4})$/;
       const match = birth_date.match(dataRegex);
-      
+
       if (!match) {
         return res.status(400).json({
           error: 'Formato de data inválido. Use DD/MM/YYYY'
         });
       }
 
-      // Converter de DD/MM/YYYY para YYYY-MM-DD
       const [, dia, mes, ano] = match;
       const dataBanco = `${ano}-${mes}-${dia}`;
 
-      // Validar se é uma data válida
       const dataObj = new Date(dataBanco);
       if (isNaN(dataObj.getTime())) {
         return res.status(400).json({
@@ -44,23 +52,40 @@ module.exports = (app) => {
       // Criptografar senha
       const senhaHash = await bcrypt.hash(password, 10);
 
+      // Preparar valores e garantir valores default quando necessário
+      const userTypeValue = user_type || 'is_standard';
+      const profilePhotoValue = profile_photo || null;
+      const phoneValue = phone || null;
+      const cnpjValue = cnpj || null;
+      const fullNameValue = full_name || null;
+
       const query = `
-        INSERT INTO account (username, email, password, birth_date) 
-        VALUES (?, ?, ?, ?)
+        INSERT INTO account (
+          full_name, username, birth_date, phone, email, password, profile_photo, cnpj, user_type
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
 
       const db = getDB();
-      db.query(query, [username, email, senhaHash, dataBanco], (err, result) => {
+      db.query(query, [
+        fullNameValue,
+        username,
+        dataBanco,
+        phoneValue,
+        email,
+        senhaHash,
+        profilePhotoValue,
+        cnpjValue,
+        userTypeValue
+      ], (err, result) => {
         if (err) {
           console.error('Erro ao criar usuário:', err);
-          
-          // Verificar se é erro de email duplicado
+
           if (err.code === 'ER_DUP_ENTRY') {
             return res.status(400).json({
-              error: 'Este email já está em uso'
+              error: 'Este email ou username já está em uso'
             });
           }
-          
+
           return res.status(500).json({
             error: 'Erro interno do servidor'
           });
@@ -82,26 +107,30 @@ module.exports = (app) => {
   });
 
   //////////////////////////////////////////TEMPORARIAMENTE LIMITADO////////////////////////////////////////////////////
-  // Login de usuário com RxJS
+  // Login de usuário
   app.post('/api/users/login', checkDB, async (req, res) => {
     const { email, password } = req.body;
+    console.log('Tentativa de login para email:', email);
 
-    authService.loginUser(email, password).subscribe({
-      next: (result) => {
-        res.json({
-          success: true,
-          message: 'Login realizado com sucesso!',
-          token: result.token,
-          user: result.user
-        });
-      },
-      error: (err) => {
-        console.error('Erro no login:', err);
-        res.status(401).json({
-          error: err.message || 'Erro ao fazer login'
-        });
+    try {
+      if (!email || !password) {
+        return res.status(400).json({ error: 'Email e senha são obrigatórios' });
       }
-    });
+
+      const result = await authService.loginUser(email, password);
+
+      return res.json({
+        success: true,
+        message: 'Login realizado com sucesso!',
+        token: result.token,
+        user: result.user
+      });
+    } catch (err) {
+      console.error('Erro no login:', err);
+      return res.status(401).json({
+        error: err.message || 'Erro ao fazer login'
+      });
+    }
   });
 
   // Buscar usuário por ID (requer banco)
@@ -109,7 +138,7 @@ module.exports = (app) => {
     try {
       const { id } = req.params;
 
-      const query = 'SELECT id_user, username, email, birth_date FROM account WHERE id_user = ?';
+      const query = 'SELECT id_user, full_name, username, email, birth_date, phone, profile_photo, cnpj, user_type FROM account WHERE id_user = ?';
       const db = getDB();
       db.query(query, [id], (err, results) => {
         if (err) {
@@ -143,7 +172,7 @@ module.exports = (app) => {
     try {
       const { userId } = req.params;
 
-      const query = 'SELECT id, username, email, birth_date FROM account WHERE id = ?';
+      const query = 'SELECT id_user, full_name, username, email, birth_date, phone, profile_photo, cnpj, user_type FROM account WHERE id_user = ?';
       const db = getDB();
 
       db.query(query, [userId], (err, results) => {
@@ -177,7 +206,7 @@ module.exports = (app) => {
   // Rota para atualizar username do usuário
   app.put('/api/users/update-name', checkDB, async (req, res) => {
     try {
-      const { userId, novoNome } = req.body;
+  const { userId, novoNome } = req.body;
 
       // Validação básica
       if (!userId || !novoNome) {
@@ -193,10 +222,10 @@ module.exports = (app) => {
         });
       }
 
-      const query = 'UPDATE account SET username = ? WHERE id = ?';
+  const query = 'UPDATE account SET username = ? WHERE id_user = ?';
       const db = getDB();
 
-      db.query(query, [novoNome.trim(), userId], (err, result) => {
+  db.query(query, [novoNome.trim(), userId], (err, result) => {
         if (err) {
           console.error('Erro ao atualizar username:', err);
           return res.status(500).json({

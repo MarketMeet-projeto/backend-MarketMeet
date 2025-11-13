@@ -3,7 +3,7 @@ const app = require('./src/app');
 
 // Importar rotas
 const userRoutes = require('./src/routes/users');
-const postRoutes = require('./src/routes/posts-rxjs');
+const postRoutes = require('./src/routes/posts');
 
 const PORT = 3000;
 
