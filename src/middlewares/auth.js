@@ -5,11 +5,16 @@ const JWT_SECRET = process.env.JWT_SECRET || 'SEU_SEGREDO_AQUI';
 
 const authMiddleware = (req, res, next) => {
   try {
+<<<<<<< HEAD
     const authHeader = req.headers.authorization;
     console.log('🔍 [Auth] Header Authorization:', authHeader ? authHeader.substring(0, 30) + '...' : 'não encontrado');
     
     const token = authHeader?.split(' ')[1];
     console.log('🔍 [Auth] Token extraído:', token ? token.substring(0, 20) + '...' : 'não encontrado');
+=======
+    const token = req.headers.authorization?.split(' ')[1];
+    console.log('Token recebido:', token);
+>>>>>>> ed9beaa11444d0cd847cbea9846916b1e34ecdc9
     
     if (!token) {
       console.log('❌ [Auth] Erro: Token não fornecido');
