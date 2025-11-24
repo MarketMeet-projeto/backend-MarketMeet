@@ -88,8 +88,9 @@ module.exports = (app) => {
   });
 
   // Buscar todos os reviews para o timeline (ordenados por data)
-  app.get('/api/posts/timeline', checkDB, (req, res) => {
+  app.get('/api/posts/timeline', checkDB, authMiddleware, (req, res) => {
     try {
+      const id_user = req.user.id_user;
       const query = `
         SELECT 
           p.id_post,
@@ -102,7 +103,8 @@ module.exports = (app) => {
           a.username,
           a.id_user,
           COUNT(DISTINCT l.id_like) as likes_count,
-          COUNT(DISTINCT c.id_comment) as comments_count
+          COUNT(DISTINCT c.id_comment) as comments_count,
+          CASE WHEN EXISTS(SELECT 1 FROM likes WHERE id_post = p.id_post AND id_user = ?) THEN true ELSE false END as isLiked
         FROM post p
         LEFT JOIN account a ON p.id_user = a.id_user
         LEFT JOIN likes l ON p.id_post = l.id_post
@@ -112,7 +114,7 @@ module.exports = (app) => {
       `;
 
       const db = getDB();
-      db.query(query, (err, results) => {
+      db.query(query, [id_user], (err, results) => {
         if (err) {
           console.error('Erro ao buscar timeline:', err);
           return res.status(500).json({
@@ -134,8 +136,9 @@ module.exports = (app) => {
   });
 
   // Buscar reviews de um usuário específico
-  app.get('/api/posts/user/:userId', checkDB, (req, res) => {
+  app.get('/api/posts/user/:userId', checkDB, authMiddleware, (req, res) => {
     const { userId } = req.params;
+    const id_user = req.user.id_user;
 
     const query = `
       SELECT 
@@ -149,7 +152,8 @@ module.exports = (app) => {
         a.username,
         a.id_user,
         COUNT(DISTINCT l.id_like) as likes_count,
-        COUNT(DISTINCT c.id_comment) as comments_count
+        COUNT(DISTINCT c.id_comment) as comments_count,
+        CASE WHEN EXISTS(SELECT 1 FROM likes WHERE id_post = p.id_post AND id_user = ?) THEN true ELSE false END as isLiked
       FROM post p
       LEFT JOIN account a ON p.id_user = a.id_user
       LEFT JOIN likes l ON p.id_post = l.id_post
@@ -160,7 +164,7 @@ module.exports = (app) => {
     `;
 
     const db = getDB();
-    db.query(query, [userId], (err, results) => {
+    db.query(query, [id_user, userId], (err, results) => {
       if (err) {
         console.error('Erro ao buscar reviews do usuário:', err);
         return res.status(500).json({
@@ -176,8 +180,9 @@ module.exports = (app) => {
   });
 
   // Buscar reviews por categoria
-  app.get('/api/posts/category/:category', checkDB, (req, res) => {
+  app.get('/api/posts/category/:category', checkDB, authMiddleware, (req, res) => {
     const { category } = req.params;
+    const id_user = req.user.id_user;
 
     const query = `
       SELECT 
@@ -191,7 +196,8 @@ module.exports = (app) => {
         a.username,
         a.id_user,
         COUNT(DISTINCT l.id_like) as likes_count,
-        COUNT(DISTINCT c.id_comment) as comments_count
+        COUNT(DISTINCT c.id_comment) as comments_count,
+        CASE WHEN EXISTS(SELECT 1 FROM likes WHERE id_post = p.id_post AND id_user = ?) THEN true ELSE false END as isLiked
       FROM post p
       LEFT JOIN account a ON p.id_user = a.id_user
       LEFT JOIN likes l ON p.id_post = l.id_post
@@ -202,7 +208,7 @@ module.exports = (app) => {
     `;
 
     const db = getDB();
-    db.query(query, [category], (err, results) => {
+    db.query(query, [id_user, category], (err, results) => {
       if (err) {
         console.error('Erro ao buscar reviews por categoria:', err);
         return res.status(500).json({
@@ -561,8 +567,9 @@ module.exports = (app) => {
   });
 
   // Buscar reviews por rating
-  app.get('/api/posts/rating/:rating', checkDB, (req, res) => {
+  app.get('/api/posts/rating/:rating', checkDB, authMiddleware, (req, res) => {
     const { rating } = req.params;
+    const id_user = req.user.id_user;
 
     // Validar rating
     if (rating < 1 || rating > 5) {
@@ -583,7 +590,8 @@ module.exports = (app) => {
         a.username,
         a.id_user,
         COUNT(DISTINCT l.id_like) as likes_count,
-        COUNT(DISTINCT c.id_comment) as comments_count
+        COUNT(DISTINCT c.id_comment) as comments_count,
+        CASE WHEN EXISTS(SELECT 1 FROM likes WHERE id_post = p.id_post AND id_user = ?) THEN true ELSE false END as isLiked
       FROM post p
       LEFT JOIN account a ON p.id_user = a.id_user
       LEFT JOIN likes l ON p.id_post = l.id_post
@@ -594,7 +602,7 @@ module.exports = (app) => {
     `;
 
     const db = getDB();
-    db.query(query, [rating], (err, results) => {
+    db.query(query, [id_user, rating], (err, results) => {
       if (err) {
         console.error('Erro ao buscar reviews por rating:', err);
         return res.status(500).json({
