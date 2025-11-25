@@ -74,8 +74,47 @@ module.exports = (app) => {
           });
         }
 
+<<<<<<< HEAD
         const newPostId = result.insertId;
         console.log(`[CREATE POST] Novo post criado - ID: ${newPostId}, id_user: ${id_user}`);
+=======
+        // 🔌 Emitir evento WebSocket para nova postagem
+        const io = req.app.get('io');
+        if (io) {
+          const newPost = {
+            id_post: result.insertId,
+            rating: rating,
+            caption: caption,
+            category: category,
+            product_photo: product_photo,
+            product_url: product_url,
+            id_user: id_user,
+            username: req.user.username,
+            likes_count: 0,
+            comments_count: 0,
+            isLiked: false,
+            created_at: new Date().toISOString()
+          };
+
+          // Emitir para todos os usuários
+          io.emit('post:created', {
+            post: newPost,
+            category: category,
+            timestamp: new Date().toISOString()
+          });
+
+          // Emitir também para categoria específica
+          if (category) {
+            io.to(`category:${category}`).emit('post:new', {
+              post: newPost,
+              category: category,
+              timestamp: new Date().toISOString()
+            });
+          }
+
+          console.log(`📝 [WebSocket] Nova postagem emitida: ${result.insertId}`);
+        }
+>>>>>>> 0a7c715f4539703305f00c2e68ae3595dbb7d4ba
 
         res.status(201).json({
           success: true,
@@ -94,8 +133,9 @@ module.exports = (app) => {
   });
 
   // Buscar todos os reviews para o timeline (ordenados por data)
-  app.get('/api/posts/timeline', checkDB, (req, res) => {
+  app.get('/api/posts/timeline', checkDB, authMiddleware, (req, res) => {
     try {
+      const id_user = req.user.id_user;
       const query = `
         SELECT 
           p.id_post,
@@ -108,7 +148,8 @@ module.exports = (app) => {
           a.username,
           a.id_user,
           COUNT(DISTINCT l.id_like) as likes_count,
-          COUNT(DISTINCT c.id_comment) as comments_count
+          COUNT(DISTINCT c.id_comment) as comments_count,
+          CASE WHEN EXISTS(SELECT 1 FROM likes WHERE id_post = p.id_post AND id_user = ?) THEN true ELSE false END as isLiked
         FROM post p
         LEFT JOIN account a ON p.id_user = a.id_user
         LEFT JOIN likes l ON p.id_post = l.id_post
@@ -118,7 +159,7 @@ module.exports = (app) => {
       `;
 
       const db = getDB();
-      db.query(query, (err, results) => {
+      db.query(query, [id_user], (err, results) => {
         if (err) {
           console.error('Erro ao buscar timeline:', err);
           return res.status(500).json({
@@ -145,8 +186,9 @@ module.exports = (app) => {
   });
 
   // Buscar reviews de um usuário específico
-  app.get('/api/posts/user/:userId', checkDB, (req, res) => {
+  app.get('/api/posts/user/:userId', checkDB, authMiddleware, (req, res) => {
     const { userId } = req.params;
+    const id_user = req.user.id_user;
 
     const query = `
       SELECT 
@@ -160,7 +202,8 @@ module.exports = (app) => {
         a.username,
         a.id_user,
         COUNT(DISTINCT l.id_like) as likes_count,
-        COUNT(DISTINCT c.id_comment) as comments_count
+        COUNT(DISTINCT c.id_comment) as comments_count,
+        CASE WHEN EXISTS(SELECT 1 FROM likes WHERE id_post = p.id_post AND id_user = ?) THEN true ELSE false END as isLiked
       FROM post p
       LEFT JOIN account a ON p.id_user = a.id_user
       LEFT JOIN likes l ON p.id_post = l.id_post
@@ -171,7 +214,7 @@ module.exports = (app) => {
     `;
 
     const db = getDB();
-    db.query(query, [userId], (err, results) => {
+    db.query(query, [id_user, userId], (err, results) => {
       if (err) {
         console.error('Erro ao buscar reviews do usuário:', err);
         return res.status(500).json({
@@ -192,8 +235,9 @@ module.exports = (app) => {
   });
 
   // Buscar reviews por categoria
-  app.get('/api/posts/category/:category', checkDB, (req, res) => {
+  app.get('/api/posts/category/:category', checkDB, authMiddleware, (req, res) => {
     const { category } = req.params;
+    const id_user = req.user.id_user;
 
     const query = `
       SELECT 
@@ -207,7 +251,8 @@ module.exports = (app) => {
         a.username,
         a.id_user,
         COUNT(DISTINCT l.id_like) as likes_count,
-        COUNT(DISTINCT c.id_comment) as comments_count
+        COUNT(DISTINCT c.id_comment) as comments_count,
+        CASE WHEN EXISTS(SELECT 1 FROM likes WHERE id_post = p.id_post AND id_user = ?) THEN true ELSE false END as isLiked
       FROM post p
       LEFT JOIN account a ON p.id_user = a.id_user
       LEFT JOIN likes l ON p.id_post = l.id_post
@@ -218,7 +263,7 @@ module.exports = (app) => {
     `;
 
     const db = getDB();
-    db.query(query, [category], (err, results) => {
+    db.query(query, [id_user, category], (err, results) => {
       if (err) {
         console.error('Erro ao buscar reviews por categoria:', err);
         return res.status(500).json({
@@ -328,6 +373,7 @@ module.exports = (app) => {
               });
             }
 
+<<<<<<< HEAD
             // Buscar dados atualizados do post
             const getPostQuery = `
               SELECT 
@@ -368,6 +414,25 @@ module.exports = (app) => {
                 likeId: existingLikeId,
                 post: postResults[0]
               });
+=======
+            // 🔌 Emitir evento WebSocket
+            const io = req.app.get('io');
+            if (io) {
+              io.emit('post:like-update', {
+                postId: postId,
+                action: 'unliked',
+                userId: id_user,
+                username: req.user.username,
+                timestamp: new Date().toISOString()
+              });
+              console.log(`❤️  [WebSocket] Curtida removida: post ${postId}`);
+            }
+
+            res.json({
+              success: true,
+              message: 'Curtida removida',
+              action: 'unliked'
+>>>>>>> 0a7c715f4539703305f00c2e68ae3595dbb7d4ba
             });
           });
         } else {
@@ -381,6 +446,7 @@ module.exports = (app) => {
               });
             }
 
+<<<<<<< HEAD
             const newLikeId = result.insertId;
             console.log(`[LIKE] Novo like ID: ${newLikeId}`);
 
@@ -424,6 +490,25 @@ module.exports = (app) => {
                 likeId: newLikeId,
                 post: postResults[0]
               });
+=======
+            // 🔌 Emitir evento WebSocket
+            const io = req.app.get('io');
+            if (io) {
+              io.emit('post:like-update', {
+                postId: postId,
+                action: 'liked',
+                userId: id_user,
+                username: req.user.username,
+                timestamp: new Date().toISOString()
+              });
+              console.log(`❤️  [WebSocket] Curtida adicionada: post ${postId}`);
+            }
+
+            res.json({
+              success: true,
+              message: 'Review curtido',
+              action: 'liked'
+>>>>>>> 0a7c715f4539703305f00c2e68ae3595dbb7d4ba
             });
           });
         }
@@ -498,6 +583,25 @@ module.exports = (app) => {
           return res.status(500).json({
             error: 'Erro interno do servidor'
           });
+        }
+
+        // 🔌 Emitir evento WebSocket
+        const io = req.app.get('io');
+        if (io) {
+          io.emit('post:comment-added', {
+            postId: postId,
+            commentId: result.insertId,
+            comment: {
+              id_comment: result.insertId,
+              id_post: postId,
+              id_user: id_user,
+              comment_text: comment,
+              username: req.user.username,
+              created_at: new Date().toISOString()
+            },
+            timestamp: new Date().toISOString()
+          });
+          console.log(`💬 [WebSocket] Novo comentário emitido: ${result.insertId} (post ${postId})`);
         }
 
         res.status(201).json({
@@ -662,8 +766,9 @@ module.exports = (app) => {
   });
 
   // Buscar reviews por rating
-  app.get('/api/posts/rating/:rating', checkDB, (req, res) => {
+  app.get('/api/posts/rating/:rating', checkDB, authMiddleware, (req, res) => {
     const { rating } = req.params;
+    const id_user = req.user.id_user;
 
     // Validar rating
     if (rating < 1 || rating > 5) {
@@ -684,7 +789,8 @@ module.exports = (app) => {
         a.username,
         a.id_user,
         COUNT(DISTINCT l.id_like) as likes_count,
-        COUNT(DISTINCT c.id_comment) as comments_count
+        COUNT(DISTINCT c.id_comment) as comments_count,
+        CASE WHEN EXISTS(SELECT 1 FROM likes WHERE id_post = p.id_post AND id_user = ?) THEN true ELSE false END as isLiked
       FROM post p
       LEFT JOIN account a ON p.id_user = a.id_user
       LEFT JOIN likes l ON p.id_post = l.id_post
@@ -695,7 +801,7 @@ module.exports = (app) => {
     `;
 
     const db = getDB();
-    db.query(query, [rating], (err, results) => {
+    db.query(query, [id_user, rating], (err, results) => {
       if (err) {
         console.error('Erro ao buscar reviews por rating:', err);
         return res.status(500).json({
