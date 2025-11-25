@@ -63,6 +63,8 @@ module.exports = (app) => {
         VALUES (${placeholders.join(', ')})
       `;
 
+      console.log(`[CREATE POST] id_user: ${id_user}, fields: [${fields.join(', ')}], values: [${values.join(', ')}]`);
+
       const db = getDB();
       db.query(query, values, (err, result) => {
         if (err) {
@@ -72,10 +74,14 @@ module.exports = (app) => {
           });
         }
 
+        const newPostId = result.insertId;
+        console.log(`[CREATE POST] Novo post criado - ID: ${newPostId}, id_user: ${id_user}`);
+
         res.status(201).json({
           success: true,
           message: 'Review criado com sucesso!',
-          postId: result.insertId
+          postId: newPostId,
+          userId: id_user
         });
       });
 
@@ -119,6 +125,11 @@ module.exports = (app) => {
             error: 'Erro interno do servidor'
           });
         }
+
+        console.log(`[TIMELINE] Retornando ${results.length} posts`);
+        results.forEach((post, idx) => {
+          console.log(`  [${idx}] id_post: ${post.id_post}, id_user: ${post.id_user}, likes: ${post.likes_count}, comments: ${post.comments_count}`);
+        });
 
         res.json({
           success: true,
@@ -168,6 +179,11 @@ module.exports = (app) => {
         });
       }
 
+      console.log(`[USER POSTS] userId: ${userId}, retornando ${results.length} posts`);
+      results.forEach((post, idx) => {
+        console.log(`  [${idx}] id_post: ${post.id_post}, id_user: ${post.id_user}, rating: ${post.rating}`);
+      });
+
       res.json({
         success: true,
         posts: results
@@ -209,6 +225,11 @@ module.exports = (app) => {
           error: 'Erro interno do servidor'
         });
       }
+
+      console.log(`[CATEGORY POSTS] category: ${category}, retornando ${results.length} posts`);
+      results.forEach((post, idx) => {
+        console.log(`  [${idx}] id_post: ${post.id_post}, id_user: ${post.id_user}, category: ${post.category}`);
+      });
 
       res.json({
         success: true,
@@ -280,6 +301,8 @@ module.exports = (app) => {
         });
       }
 
+      console.log(`[LIKE] postId: ${postId}, id_user: ${id_user}`);
+
       // Verificar se o usuário já curtiu
       const checkQuery = 'SELECT id_like FROM likes WHERE id_post = ? AND id_user = ?';
       const db = getDB();
@@ -293,6 +316,9 @@ module.exports = (app) => {
 
         if (results.length > 0) {
           // Se já curtiu, remove a curtida
+          const existingLikeId = results[0].id_like;
+          console.log(`[UNLIKE] Removendo like ID: ${existingLikeId}`);
+          
           const deleteQuery = 'DELETE FROM likes WHERE id_post = ? AND id_user = ?';
           db.query(deleteQuery, [postId, id_user], (err) => {
             if (err) {
@@ -302,16 +328,52 @@ module.exports = (app) => {
               });
             }
 
-            res.json({
-              success: true,
-              message: 'Curtida removida',
-              action: 'unliked'
+            // Buscar dados atualizados do post
+            const getPostQuery = `
+              SELECT 
+                p.id_post,
+                p.rating,
+                p.caption,
+                p.category,
+                p.product_photo,
+                p.product_url,
+                p.created_at,
+                a.username,
+                a.id_user,
+                COUNT(DISTINCT l.id_like) as likes_count,
+                COUNT(DISTINCT c.id_comment) as comments_count
+              FROM post p
+              LEFT JOIN account a ON p.id_user = a.id_user
+              LEFT JOIN likes l ON p.id_post = l.id_post
+              LEFT JOIN comments c ON p.id_post = c.id_post
+              WHERE p.id_post = ?
+              GROUP BY p.id_post
+            `;
+
+            db.query(getPostQuery, [postId], (err, postResults) => {
+              if (err || !postResults.length) {
+                console.error('Erro ao buscar post atualizado:', err);
+                return res.json({
+                  success: true,
+                  message: 'Curtida removida',
+                  action: 'unliked',
+                  likeId: existingLikeId
+                });
+              }
+
+              res.json({
+                success: true,
+                message: 'Curtida removida',
+                action: 'unliked',
+                likeId: existingLikeId,
+                post: postResults[0]
+              });
             });
           });
         } else {
           // Se não curtiu, adiciona a curtida
           const insertQuery = 'INSERT INTO likes (id_post, id_user, created_at) VALUES (?, ?, NOW())';
-          db.query(insertQuery, [postId, id_user], (err) => {
+          db.query(insertQuery, [postId, id_user], (err, result) => {
             if (err) {
               console.error('Erro ao adicionar like:', err);
               return res.status(500).json({
@@ -319,10 +381,49 @@ module.exports = (app) => {
               });
             }
 
-            res.json({
-              success: true,
-              message: 'Review curtido',
-              action: 'liked'
+            const newLikeId = result.insertId;
+            console.log(`[LIKE] Novo like ID: ${newLikeId}`);
+
+            // Buscar dados atualizados do post
+            const getPostQuery = `
+              SELECT 
+                p.id_post,
+                p.rating,
+                p.caption,
+                p.category,
+                p.product_photo,
+                p.product_url,
+                p.created_at,
+                a.username,
+                a.id_user,
+                COUNT(DISTINCT l.id_like) as likes_count,
+                COUNT(DISTINCT c.id_comment) as comments_count
+              FROM post p
+              LEFT JOIN account a ON p.id_user = a.id_user
+              LEFT JOIN likes l ON p.id_post = l.id_post
+              LEFT JOIN comments c ON p.id_post = c.id_post
+              WHERE p.id_post = ?
+              GROUP BY p.id_post
+            `;
+
+            db.query(getPostQuery, [postId], (err, postResults) => {
+              if (err || !postResults.length) {
+                console.error('Erro ao buscar post atualizado:', err);
+                return res.json({
+                  success: true,
+                  message: 'Review curtido',
+                  action: 'liked',
+                  likeId: newLikeId
+                });
+              }
+
+              res.json({
+                success: true,
+                message: 'Review curtido',
+                action: 'liked',
+                likeId: newLikeId,
+                post: postResults[0]
+              });
             });
           });
         }
