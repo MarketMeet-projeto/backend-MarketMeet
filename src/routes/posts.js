@@ -72,6 +72,43 @@ module.exports = (app) => {
           });
         }
 
+        // 🔌 Emitir evento WebSocket para nova postagem
+        const io = req.app.get('io');
+        if (io) {
+          const newPost = {
+            id_post: result.insertId,
+            rating: rating,
+            caption: caption,
+            category: category,
+            product_photo: product_photo,
+            product_url: product_url,
+            id_user: id_user,
+            username: req.user.username,
+            likes_count: 0,
+            comments_count: 0,
+            isLiked: false,
+            created_at: new Date().toISOString()
+          };
+
+          // Emitir para todos os usuários
+          io.emit('post:created', {
+            post: newPost,
+            category: category,
+            timestamp: new Date().toISOString()
+          });
+
+          // Emitir também para categoria específica
+          if (category) {
+            io.to(`category:${category}`).emit('post:new', {
+              post: newPost,
+              category: category,
+              timestamp: new Date().toISOString()
+            });
+          }
+
+          console.log(`📝 [WebSocket] Nova postagem emitida: ${result.insertId}`);
+        }
+
         res.status(201).json({
           success: true,
           message: 'Review criado com sucesso!',
@@ -308,6 +345,19 @@ module.exports = (app) => {
               });
             }
 
+            // 🔌 Emitir evento WebSocket
+            const io = req.app.get('io');
+            if (io) {
+              io.emit('post:like-update', {
+                postId: postId,
+                action: 'unliked',
+                userId: id_user,
+                username: req.user.username,
+                timestamp: new Date().toISOString()
+              });
+              console.log(`❤️  [WebSocket] Curtida removida: post ${postId}`);
+            }
+
             res.json({
               success: true,
               message: 'Curtida removida',
@@ -323,6 +373,19 @@ module.exports = (app) => {
               return res.status(500).json({
                 error: 'Erro interno do servidor'
               });
+            }
+
+            // 🔌 Emitir evento WebSocket
+            const io = req.app.get('io');
+            if (io) {
+              io.emit('post:like-update', {
+                postId: postId,
+                action: 'liked',
+                userId: id_user,
+                username: req.user.username,
+                timestamp: new Date().toISOString()
+              });
+              console.log(`❤️  [WebSocket] Curtida adicionada: post ${postId}`);
             }
 
             res.json({
@@ -403,6 +466,25 @@ module.exports = (app) => {
           return res.status(500).json({
             error: 'Erro interno do servidor'
           });
+        }
+
+        // 🔌 Emitir evento WebSocket
+        const io = req.app.get('io');
+        if (io) {
+          io.emit('post:comment-added', {
+            postId: postId,
+            commentId: result.insertId,
+            comment: {
+              id_comment: result.insertId,
+              id_post: postId,
+              id_user: id_user,
+              comment_text: comment,
+              username: req.user.username,
+              created_at: new Date().toISOString()
+            },
+            timestamp: new Date().toISOString()
+          });
+          console.log(`💬 [WebSocket] Novo comentário emitido: ${result.insertId} (post ${postId})`);
         }
 
         res.status(201).json({
