@@ -260,52 +260,6 @@ module.exports = (app) => {
     });
   });
 
-  // Deletar review (apenas o autor pode deletar)
-  app.delete('/api/posts/:postId', checkDB, (req, res) => {
-    const { postId } = req.params;
-    const { id_user } = req.body;
-
-    // Verificar se o post pertence ao usuário
-    const checkQuery = 'SELECT id_user FROM post WHERE id_post = ?';
-    const db = getDB();
-    db.query(checkQuery, [postId], (err, results) => {
-      if (err) {
-        console.error('Erro ao verificar post:', err);
-        return res.status(500).json({
-          error: 'Erro interno do servidor'
-        });
-      }
-
-      if (results.length === 0) {
-        return res.status(404).json({
-          error: 'Review não encontrado'
-        });
-      }
-
-      if (results[0].id_user !== parseInt(id_user)) {
-        return res.status(403).json({
-          error: 'Você não tem permissão para deletar este review'
-        });
-      }
-
-      // Deletar o review
-      const deleteQuery = 'DELETE FROM post WHERE id_post = ?';
-      db.query(deleteQuery, [postId], (err) => {
-        if (err) {
-          console.error('Erro ao deletar review:', err);
-          return res.status(500).json({
-            error: 'Erro interno do servidor'
-          });
-        }
-
-        res.json({
-          success: true,
-          message: 'Review deletado com sucesso!'
-        });
-      });
-    });
-  });
-
   // ===========================================
   // ROTAS PARA CURTIDAS (LIKES)
   // ===========================================
@@ -314,8 +268,13 @@ module.exports = (app) => {
   app.post('/api/posts/:postId/like', checkDB, authMiddleware, (req, res) => {
     try {
       const { postId } = req.params;
-      // 🔐 Pegar id_user do JWT, não do body
       const id_user = req.user.id_user;
+      const io = req.app.get('io');
+
+      console.log('❤️ [LIKE] === INICIANDO CURTIDA ===');
+      console.log('❤️ [LIKE] postId:', postId, 'type:', typeof postId);
+      console.log('❤️ [LIKE] id_user:', id_user, 'type:', typeof id_user);
+      console.log('❤️ [LIKE] username:', req.user.username);
 
       if (!id_user) {
         return res.status(401).json({
@@ -323,81 +282,135 @@ module.exports = (app) => {
         });
       }
 
-      // Verificar se o usuário já curtiu
       const checkQuery = 'SELECT id_like FROM likes WHERE id_post = ? AND id_user = ?';
       const db = getDB();
+      
       db.query(checkQuery, [postId, id_user], (err, results) => {
         if (err) {
-          console.error('Erro ao verificar like:', err);
+          console.error('❤️ [LIKE] Erro ao verificar like:', err);
           return res.status(500).json({
             error: 'Erro interno do servidor'
           });
         }
 
+        console.log('❤️ [LIKE] Already liked?:', results.length > 0);
+
+        const getPostQuery = `
+          SELECT 
+            p.id_post,
+            p.rating,
+            p.caption,
+            p.category,
+            p.product_photo,
+            p.product_url,
+            p.created_at,
+            a.username,
+            a.id_user,
+            COUNT(DISTINCT l.id_like) as likes_count,
+            COUNT(DISTINCT c.id_comment) as comments_count
+          FROM post p
+          LEFT JOIN account a ON p.id_user = a.id_user
+          LEFT JOIN likes l ON p.id_post = l.id_post
+          LEFT JOIN comments c ON p.id_post = c.id_post
+          WHERE p.id_post = ?
+          GROUP BY p.id_post
+        `;
+
         if (results.length > 0) {
-          // Se já curtiu, remove a curtida
+          // Remove curtida
+          console.log('❤️ [LIKE] Removendo like existente');
           const deleteQuery = 'DELETE FROM likes WHERE id_post = ? AND id_user = ?';
           db.query(deleteQuery, [postId, id_user], (err) => {
             if (err) {
-              console.error('Erro ao remover like:', err);
+              console.error('❤️ [LIKE] Erro ao remover like:', err);
               return res.status(500).json({
                 error: 'Erro interno do servidor'
               });
             }
 
-            // 🔌 Emitir evento WebSocket
-            const io = req.app.get('io');
-            if (io) {
-              io.emit('post:like-update', {
-                postId: postId,
-                action: 'unliked',
-                userId: id_user,
-                username: req.user.username,
-                timestamp: new Date().toISOString()
-              });
-              console.log(`❤️  [WebSocket] Curtida removida: post ${postId}`);
-            }
+            console.log('❤️ [LIKE] Like removido, buscando post atualizado');
+            // Buscar post atualizado
+            db.query(getPostQuery, [postId], (err, postResults) => {
+              const post = postResults?.[0] || null;
+              
+              console.log('❤️ [LIKE] Post retornado após DELETE:', JSON.stringify(post, null, 2));
+              
+              // Emitir WebSocket
+              if (io) {
+                io.emit('timeline:update', {
+                  type: 'like-removed',
+                  post: post,
+                  postId: postId,
+                  action: 'unliked',
+                  userId: id_user,
+                  timestamp: new Date().toISOString()
+                });
+              }
 
-            res.json({
-              success: true,
-              message: 'Curtida removida',
-              action: 'unliked'
+              const response = {
+                success: true,
+                message: 'Curtida removida',
+                action: 'unliked',
+                post: post
+              };
+
+              console.log('❤️ [LIKE] === RESPOSTA FINAL (UNLIKE) ===');
+              console.log('❤️ [LIKE] Response:', JSON.stringify(response, null, 2));
+              
+              res.json(response);
             });
           });
         } else {
-          // Se não curtiu, adiciona a curtida
+          // Adiciona curtida
+          console.log('❤️ [LIKE] Adicionando nova curtida');
           const insertQuery = 'INSERT INTO likes (id_post, id_user, created_at) VALUES (?, ?, NOW())';
-          db.query(insertQuery, [postId, id_user], (err) => {
+          db.query(insertQuery, [postId, id_user], (err, result) => {
             if (err) {
-              console.error('Erro ao adicionar like:', err);
+              console.error('❤️ [LIKE] Erro ao adicionar like:', err);
               return res.status(500).json({
                 error: 'Erro interno do servidor'
               });
             }
 
-            // 🔌 Emitir evento WebSocket
-            const io = req.app.get('io');
-            if (io) {
-              io.emit('post:like-update', {
-                postId: postId,
-                action: 'liked',
-                userId: id_user,
-                username: req.user.username,
-                timestamp: new Date().toISOString()
-              });
-              console.log(`❤️  [WebSocket] Curtida adicionada: post ${postId}`);
-            }
+            console.log('❤️ [LIKE] Like inserido, ID:', result.insertId);
+            console.log('❤️ [LIKE] Buscando post atualizado');
+            // Buscar post atualizado
+            db.query(getPostQuery, [postId], (err, postResults) => {
+              const post = postResults?.[0] || null;
 
-            res.json({
-              success: true,
-              message: 'Review curtido',
-              action: 'liked'
+              console.log('❤️ [LIKE] Post retornado após INSERT:', JSON.stringify(post, null, 2));
+
+              // Emitir WebSocket
+              if (io) {
+                io.emit('timeline:update', {
+                  type: 'like-added',
+                  post: post,
+                  postId: postId,
+                  action: 'liked',
+                  userId: id_user,
+                  likeId: result.insertId,
+                  timestamp: new Date().toISOString()
+                });
+              }
+
+              const response = {
+                success: true,
+                message: 'Review curtido',
+                action: 'liked',
+                post: post,
+                likeId: result.insertId
+              };
+
+              console.log('❤️ [LIKE] === RESPOSTA FINAL (LIKE) ===');
+              console.log('❤️ [LIKE] Response:', JSON.stringify(response, null, 2));
+              
+              res.json(response);
             });
           });
         }
       });
     } catch (error) {
-      console.error('Erro ao processar curtida:', error);
+      console.error('❤️ [LIKE] Erro ao processar curtida:', error);
       res.status(500).json({
         error: 'Erro interno do servidor'
       });
@@ -440,27 +453,25 @@ module.exports = (app) => {
   app.post('/api/posts/:postId/comments', checkDB, authMiddleware, (req, res) => {
     try {
       const { postId } = req.params;
-      // 🔐 Pegar id_user do JWT, não do body
       const id_user = req.user.id_user;
       const { comment_text } = req.body;
+      const io = req.app.get('io');
 
-      // Validação: id_user vem do JWT autenticado
       if (!id_user) {
         return res.status(401).json({
           error: 'Usuário não autenticado'
         });
       }
 
-      // Se comment_text não for fornecido, criar comentário vazio
       const comment = comment_text || '';
 
-      const query = `
+      const insertQuery = `
         INSERT INTO comments (id_post, id_user, comment_text, created_at) 
         VALUES (?, ?, ?, NOW())
       `;
 
       const db = getDB();
-      db.query(query, [postId, id_user, comment], (err, result) => {
+      db.query(insertQuery, [postId, id_user, comment], (err, result) => {
         if (err) {
           console.error('Erro ao adicionar comentário:', err);
           return res.status(500).json({
@@ -468,29 +479,55 @@ module.exports = (app) => {
           });
         }
 
-        // 🔌 Emitir evento WebSocket
-        const io = req.app.get('io');
-        if (io) {
-          io.emit('post:comment-added', {
-            postId: postId,
-            commentId: result.insertId,
-            comment: {
-              id_comment: result.insertId,
-              id_post: postId,
-              id_user: id_user,
-              comment_text: comment,
-              username: req.user.username,
-              created_at: new Date().toISOString()
-            },
-            timestamp: new Date().toISOString()
-          });
-          console.log(`💬 [WebSocket] Novo comentário emitido: ${result.insertId} (post ${postId})`);
-        }
+        const getPostQuery = `
+          SELECT 
+            p.id_post,
+            p.rating,
+            p.caption,
+            p.category,
+            p.product_photo,
+            p.product_url,
+            p.created_at,
+            a.username,
+            a.id_user,
+            COUNT(DISTINCT l.id_like) as likes_count,
+            COUNT(DISTINCT c.id_comment) as comments_count
+          FROM post p
+          LEFT JOIN account a ON p.id_user = a.id_user
+          LEFT JOIN likes l ON p.id_post = l.id_post
+          LEFT JOIN comments c ON p.id_post = c.id_post
+          WHERE p.id_post = ?
+          GROUP BY p.id_post
+        `;
 
-        res.status(201).json({
-          success: true,
-          message: 'Comentário adicionado com sucesso!',
-          commentId: result.insertId
+        // Buscar post atualizado
+        db.query(getPostQuery, [postId], (err, postResults) => {
+          const post = postResults?.[0] || null;
+
+          // Emitir WebSocket
+          if (io) {
+            io.emit('timeline:update', {
+              type: 'comment-added',
+              post: post,
+              postId: postId,
+              comment: {
+                id_comment: result.insertId,
+                id_post: postId,
+                id_user: id_user,
+                comment_text: comment,
+                username: req.user.username,
+                created_at: new Date().toISOString()
+              },
+              timestamp: new Date().toISOString()
+            });
+          }
+
+          res.status(201).json({
+            success: true,
+            message: 'Comentário adicionado com sucesso!',
+            commentId: result.insertId,
+            post: post
+          });
         });
       });
     } catch (error) {
@@ -535,14 +572,15 @@ module.exports = (app) => {
   });
 
   // Deletar comentário (apenas o autor pode deletar)
-  app.delete('/api/posts/:postId/comments/:commentId', checkDB, (req, res) => {
-    const { commentId } = req.params;
-    const { id_user } = req.body;
+  app.delete('/api/posts/:postId/comments/:commentId', checkDB, authMiddleware, (req, res) => {
+    const { postId, commentId } = req.params;
+    const id_user = req.user.id_user;
+    const io = req.app.get('io');
     const db = getDB();
 
     // Verificar se o comentário pertence ao usuário
-    const checkQuery = 'SELECT id_user FROM comments WHERE id_comment = ?';
-    db.query(checkQuery, [commentId], (err, results) => {
+    const checkQuery = 'SELECT id_post FROM comments WHERE id_comment = ? AND id_user = ?';
+    db.query(checkQuery, [commentId, id_user], (err, results) => {
       if (err) {
         console.error('Erro ao verificar comentário:', err);
         return res.status(500).json({
@@ -552,13 +590,7 @@ module.exports = (app) => {
 
       if (results.length === 0) {
         return res.status(404).json({
-          error: 'Comentário não encontrado'
-        });
-      }
-
-      if (results[0].id_user !== parseInt(id_user)) {
-        return res.status(403).json({
-          error: 'Você não tem permissão para deletar este comentário'
+          error: 'Comentário não encontrado ou sem permissão'
         });
       }
 
@@ -572,9 +604,47 @@ module.exports = (app) => {
           });
         }
 
-        res.json({
-          success: true,
-          message: 'Comentário deletado com sucesso!'
+        // Buscar post atualizado
+        const getPostQuery = `
+          SELECT 
+            p.id_post,
+            p.rating,
+            p.caption,
+            p.category,
+            p.product_photo,
+            p.product_url,
+            p.created_at,
+            a.username,
+            a.id_user,
+            COUNT(DISTINCT l.id_like) as likes_count,
+            COUNT(DISTINCT c.id_comment) as comments_count
+          FROM post p
+          LEFT JOIN account a ON p.id_user = a.id_user
+          LEFT JOIN likes l ON p.id_post = l.id_post
+          LEFT JOIN comments c ON p.id_post = c.id_post
+          WHERE p.id_post = ?
+          GROUP BY p.id_post
+        `;
+
+        db.query(getPostQuery, [postId], (err, postResults) => {
+          const post = postResults?.[0] || null;
+
+          // Emitir WebSocket
+          if (io) {
+            io.emit('timeline:update', {
+              type: 'comment-removed',
+              post: post,
+              postId: postId,
+              commentId: commentId,
+              timestamp: new Date().toISOString()
+            });
+          }
+
+          res.json({
+            success: true,
+            message: 'Comentário deletado com sucesso!',
+            post: post
+          });
         });
       });
     });
@@ -621,6 +691,8 @@ module.exports = (app) => {
   app.get('/api/posts/:postId/likes', checkDB, (req, res) => {
     const { postId } = req.params;
 
+    console.log('❤️ [GET_LIKES] Buscando curtidas para postId:', postId, 'type:', typeof postId);
+
     const query = `
       SELECT 
         a.id_user,
@@ -635,16 +707,24 @@ module.exports = (app) => {
     const db = getDB();
     db.query(query, [postId], (err, results) => {
       if (err) {
-        console.error('Erro ao buscar curtidas:', err);
+        console.error('❤️ [GET_LIKES] Erro ao buscar curtidas:', err);
         return res.status(500).json({
           error: 'Erro interno do servidor'
         });
       }
 
-      res.json({
+      console.log('❤️ [GET_LIKES] Curtidas encontradas:', results.length);
+      console.log('❤️ [GET_LIKES] Dados completos:', JSON.stringify(results, null, 2));
+
+      const response = {
         success: true,
-        likes: results
-      });
+        likes: results,
+        likedBy: results.map(l => ({ id_user: l.id_user, username: l.username }))
+      };
+
+      console.log('❤️ [GET_LIKES] Resposta:', JSON.stringify(response, null, 2));
+
+      res.json(response);
     });
   });
 
@@ -718,5 +798,242 @@ module.exports = (app) => {
         categories: categories
       });
     });
+  });
+
+  // =============================================
+  // EDITAR POST
+  // =============================================
+  app.put('/api/posts/:postId', checkDB, authMiddleware, (req, res) => {
+    try {
+      const { postId } = req.params;
+      const id_user = req.user.id_user;
+      const { rating, caption, category, product_photo, product_url } = req.body;
+      const io = req.app.get('io');
+
+      if (!id_user) {
+        return res.status(401).json({
+          error: 'Usuário não autenticado'
+        });
+      }
+
+      // Validar rating se fornecido
+      if (rating !== undefined && (rating < 1 || rating > 5)) {
+        return res.status(400).json({
+          error: 'Rating deve estar entre 1 e 5'
+        });
+      }
+
+      const db = getDB();
+
+      // Primeiro verificar se o post pertence ao usuário
+      const checkQuery = 'SELECT id_user FROM post WHERE id_post = ?';
+      db.query(checkQuery, [postId], (err, results) => {
+        if (err) {
+          console.error('Erro ao verificar post:', err);
+          return res.status(500).json({
+            error: 'Erro interno do servidor'
+          });
+        }
+
+        if (results.length === 0) {
+          return res.status(404).json({
+            error: 'Post não encontrado'
+          });
+        }
+
+        if (results[0].id_user !== id_user) {
+          return res.status(403).json({
+            error: 'Você não tem permissão para editar este post'
+          });
+        }
+
+        // Construir query de atualização dinamicamente
+        let updates = [];
+        let values = [];
+
+        if (rating !== undefined) {
+          updates.push('rating = ?');
+          values.push(rating);
+        }
+
+        if (caption !== undefined) {
+          updates.push('caption = ?');
+          values.push(caption);
+        }
+
+        if (category !== undefined) {
+          updates.push('category = ?');
+          values.push(category);
+        }
+
+        if (product_photo !== undefined) {
+          updates.push('product_photo = ?');
+          values.push(product_photo);
+        }
+
+        if (product_url !== undefined) {
+          updates.push('product_url = ?');
+          values.push(product_url);
+        }
+
+        if (updates.length === 0) {
+          return res.status(400).json({
+            error: 'Nenhum campo fornecido para atualizar'
+          });
+        }
+
+        values.push(postId);
+
+        const updateQuery = `UPDATE post SET ${updates.join(', ')} WHERE id_post = ?`;
+
+        db.query(updateQuery, values, (err) => {
+          if (err) {
+            console.error('Erro ao atualizar post:', err);
+            return res.status(500).json({
+              error: 'Erro interno do servidor'
+            });
+          }
+
+          // Buscar post atualizado
+          const getPostQuery = `
+            SELECT 
+              p.id_post,
+              p.rating,
+              p.caption,
+              p.category,
+              p.product_photo,
+              p.product_url,
+              p.created_at,
+              a.username,
+              a.id_user,
+              COUNT(DISTINCT l.id_like) as likes_count,
+              COUNT(DISTINCT c.id_comment) as comments_count
+            FROM post p
+            LEFT JOIN account a ON p.id_user = a.id_user
+            LEFT JOIN likes l ON p.id_post = l.id_post
+            LEFT JOIN comments c ON p.id_post = c.id_post
+            WHERE p.id_post = ?
+            GROUP BY p.id_post
+          `;
+
+          db.query(getPostQuery, [postId], (err, postResults) => {
+            const post = postResults?.[0] || null;
+
+            // Emitir WebSocket
+            if (io) {
+              io.emit('timeline:update', {
+                type: 'post-edited',
+                post: post,
+                postId: postId,
+                timestamp: new Date().toISOString()
+              });
+            }
+
+            res.json({
+              success: true,
+              message: 'Post atualizado com sucesso!',
+              post: post
+            });
+          });
+        });
+      });
+    } catch (error) {
+      console.error('Erro ao processar edição do post:', error);
+      res.status(500).json({
+        error: 'Erro interno do servidor'
+      });
+    }
+  });
+
+  // =============================================
+  // DELETAR POST
+  // =============================================
+  app.delete('/api/posts/:postId', checkDB, authMiddleware, (req, res) => {
+    try {
+      const { postId } = req.params;
+      const id_user = req.user.id_user;
+      const io = req.app.get('io');
+
+      if (!id_user) {
+        return res.status(401).json({
+          error: 'Usuário não autenticado'
+        });
+      }
+
+      const db = getDB();
+
+      // Verificar se o post pertence ao usuário
+      const checkQuery = 'SELECT id_user FROM post WHERE id_post = ?';
+      db.query(checkQuery, [postId], (err, results) => {
+        if (err) {
+          console.error('Erro ao verificar post:', err);
+          return res.status(500).json({
+            error: 'Erro interno do servidor'
+          });
+        }
+
+        if (results.length === 0) {
+          return res.status(404).json({
+            error: 'Post não encontrado'
+          });
+        }
+
+        if (results[0].id_user !== id_user) {
+          return res.status(403).json({
+            error: 'Você não tem permissão para deletar este post'
+          });
+        }
+
+        // Deletar likes
+        db.query('DELETE FROM likes WHERE id_post = ?', [postId], (err) => {
+          if (err) {
+            console.error('Erro ao deletar likes:', err);
+            return res.status(500).json({
+              error: 'Erro interno do servidor'
+            });
+          }
+
+          // Deletar comentários
+          db.query('DELETE FROM comments WHERE id_post = ?', [postId], (err) => {
+            if (err) {
+              console.error('Erro ao deletar comentários:', err);
+              return res.status(500).json({
+                error: 'Erro interno do servidor'
+              });
+            }
+
+            // Deletar o post
+            db.query('DELETE FROM post WHERE id_post = ?', [postId], (err) => {
+              if (err) {
+                console.error('Erro ao deletar post:', err);
+                return res.status(500).json({
+                  error: 'Erro interno do servidor'
+                });
+              }
+
+              // Emitir WebSocket
+              if (io) {
+                io.emit('timeline:update', {
+                  type: 'post-deleted',
+                  postId: postId,
+                  timestamp: new Date().toISOString()
+                });
+              }
+
+              res.json({
+                success: true,
+                message: 'Post deletado com sucesso!',
+                postId: postId
+              });
+            });
+          });
+        });
+      });
+    } catch (error) {
+      console.error('Erro ao processar deleção do post:', error);
+      res.status(500).json({
+        error: 'Erro interno do servidor'
+      });
+    }
   });
 };
