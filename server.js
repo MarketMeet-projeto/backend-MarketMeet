@@ -4,11 +4,7 @@ const http = require('http');
 const socketIO = require('socket.io');
 const { setupSocketHandlers } = require('./src/websocket/socketHandler');
 
-// Importar rotas
-const userRoutes = require('./src/routes/users');
-const postRoutes = require('./src/routes/posts');
-
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
 // Criar servidor HTTP para suportar WebSocket
 const server = http.createServer(app);
@@ -27,10 +23,6 @@ setupSocketHandlers(io);
 
 // Fazer io disponível globalmente para as rotas
 app.set('io', io);
-
-// Aplicar rotas
-userRoutes(app);
-postRoutes(app);
 
 // Rota de teste
 app.get('/api/test', (req, res) => {

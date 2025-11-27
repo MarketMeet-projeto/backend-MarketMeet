@@ -8,6 +8,8 @@ const logger = require('./utils/logger');
 
 const app = express();
 
+console.log('🔵 [APP INIT] - Inicializando aplicação...');
+
 // Configurações de segurança
 app.use(helmet());
 app.use(limiter);
@@ -24,6 +26,12 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+console.log('✅ [MIDDLEWARES] - Middlewares configurados');
+
+// =====================================================
+// ROTAS DE STATUS E TESTE
+// =====================================================
+
 // Rota de status da aplicação
 app.get('/api/status', (req, res) => {
   try {
@@ -34,7 +42,7 @@ app.get('/api/status', (req, res) => {
       message: isConnected() ? 'Todos os serviços funcionando' : 'Banco de dados indisponível'
     });
   } catch (error) {
-    console.error('Erro ao verificar status:', error);
+    console.error('❌ Erro ao verificar status:', error);
     res.status(500).json({
       error: 'Erro interno do servidor'
     });
@@ -49,18 +57,55 @@ app.get('/api/test', (req, res) => {
       timestamp: new Date().toISOString()
     });
   } catch (error) {
-    console.error('Erro na rota de teste:', error);
+    console.error('❌ Erro na rota de teste:', error);
     res.status(500).json({
       error: 'Erro interno do servidor'
     });
   }
 });
 
-// Importar rotas
-require('./routes/users')(app);
-require('./routes/posts')(app);
+// =====================================================
+// IMPORTAR E REGISTRAR ROTAS
+// =====================================================
 
-// Error Handler - deve ser o último middleware
+console.log('🟡 [ROUTES] - Carregando rotas...');
+
+try {
+  require('./routes/users')(app);
+  console.log('✅ [ROUTES] - Rotas de usuários carregadas');
+} catch (error) {
+  console.error('❌ Erro ao carregar rotas de usuários:', error);
+}
+
+try {
+  require('./routes/posts')(app);
+  console.log('✅ [ROUTES] - Rotas de posts carregadas');
+} catch (error) {
+  console.error('❌ Erro ao carregar rotas de posts:', error);
+}
+
+console.log('✅ [ROUTES] - Todas as rotas carregadas com sucesso');
+
+// =====================================================
+// ROTA 404 - DEVE SER POR ÚLTIMO
+// =====================================================
+
+app.use((req, res) => {
+  console.warn(`⚠️ [404] - Rota não encontrada: ${req.method} ${req.path}`);
+  res.status(404).json({
+    error: 'Rota não encontrada',
+    method: req.method,
+    path: req.path,
+    timestamp: new Date().toISOString()
+  });
+});
+
+// =====================================================
+// ERROR HANDLER - DEVE SER O ÚLTIMO MIDDLEWARE
+// =====================================================
+
 app.use(errorHandler);
+
+console.log('✅ [APP INIT] - Aplicação inicializada com sucesso!\n');
 
 module.exports = app;

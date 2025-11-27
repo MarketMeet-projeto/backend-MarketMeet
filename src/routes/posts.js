@@ -1,61 +1,119 @@
+
 module.exports = (app) => {
   const { getDB, checkDB } = require('../db');
   const authMiddleware = require('../middlewares/auth');
+  const logger = require('../utils/logger');
 
-  // Criar nova publicação/review
-  app.post('/api/posts/create', checkDB, authMiddleware, (req, res) => {
+  // =============================================
+  // ROTA: CRIAR PUBLICAÇÃO/REVIEW (CORRIGIDA)
+  // =============================================
+  app.post('/api/posts/create', checkDB, authMiddleware, async (req, res) => {
     try {
-      // 🔐 Pegar id_user do JWT, não do body (segurança)
-      const id_user = req.user.id_user;
+      console.log('\n' + '='.repeat(60));
+      console.log('🔵 [CREATE POST] - Requisição recebida');
+      console.log('='.repeat(60));
+
+      // 🔐 Pegar id_user do JWT autenticado
+      const id_user = req.user?.id_user;
       const { rating, caption, category, product_photo, product_url } = req.body;
 
-      // Validação: id_user vem do JWT autenticado
+      console.log('📦 Dados recebidos:');
+      console.log('  - id_user (do JWT):', id_user);
+      console.log('  - rating:', rating);
+      console.log('  - caption:', caption);
+      console.log('  - category:', category);
+      console.log('  - product_photo:', product_photo ? 'presente' : 'vazio');
+      console.log('  - product_url:', product_url);
+
+      // ============================================
+      // 1. VALIDAÇÃO: id_user vem do JWT autenticado
+      // ============================================
+      console.log('\n🟡 [VALIDATE] - Validando autenticação...');
+
       if (!id_user) {
+        console.log('❌ id_user não encontrado no JWT');
         return res.status(401).json({
-          error: 'Usuário não autenticado'
+          error: 'Usuário não autenticado. Token inválido ou expirado.',
+          debug: { id_user }
         });
       }
 
-      // Validar rating se fornecido (deve ser entre 1 e 5)
-      if (rating !== undefined && (rating < 1 || rating > 5)) {
+      console.log('✅ Usuário autenticado: ID', id_user);
+
+      // ============================================
+      // 2. VALIDAÇÃO: pelo menos caption deve existir
+      // ============================================
+      console.log('\n🟡 [VALIDATE] - Verificando campos obrigatórios...');
+
+      if (!caption || caption.trim() === '') {
+        console.log('❌ Caption vazio');
         return res.status(400).json({
-          error: 'Rating deve estar entre 1 e 5'
+          error: 'Caption é obrigatório. Forneça um texto para o post.'
         });
       }
 
-      // Construir query dinamicamente baseado nos campos fornecidos
+      console.log('✅ Caption válido:', caption.substring(0, 50) + '...');
+
+      // ============================================
+      // 3. VALIDAÇÃO: rating deve estar entre 1-5
+      // ============================================
+      console.log('\n🟡 [VALIDATE] - Validando rating...');
+
+      if (rating !== undefined && rating !== null) {
+        const ratingNum = Number(rating);
+        if (isNaN(ratingNum) || ratingNum < 1 || ratingNum > 5) {
+          console.log('❌ Rating inválido:', rating);
+          return res.status(400).json({
+            error: 'Rating deve estar entre 1 e 5'
+          });
+        }
+        console.log('✅ Rating válido:', ratingNum);
+      } else {
+        console.log('⚪ Rating não fornecido (opcional)');
+      }
+
+      // ============================================
+      // 4. CONSTRUIR QUERY DINAMICAMENTE
+      // ============================================
+      console.log('\n🟡 [BUILD QUERY] - Construindo query INSERT...');
+
       let fields = ['id_user', 'created_at'];
       let placeholders = ['?', 'NOW()'];
       let values = [id_user];
 
-      if (rating !== undefined) {
+      // Adicionar rating se fornecido
+      if (rating !== undefined && rating !== null) {
         fields.push('rating');
         placeholders.push('?');
-        values.push(rating);
+        values.push(Number(rating));
       }
 
-      if (caption !== undefined) {
+      // Adicionar caption (obrigatório)
+      if (caption !== undefined && caption !== null) {
         fields.push('caption');
         placeholders.push('?');
-        values.push(caption);
+        values.push(caption.trim());
       }
 
-      if (category !== undefined) {
+      // Adicionar category se fornecido
+      if (category !== undefined && category !== null && category.trim() !== '') {
         fields.push('category');
         placeholders.push('?');
-        values.push(category);
+        values.push(category.trim());
       }
 
-      if (product_photo !== undefined) {
+      // Adicionar product_photo se fornecido
+      if (product_photo !== undefined && product_photo !== null && product_photo.trim() !== '') {
         fields.push('product_photo');
         placeholders.push('?');
-        values.push(product_photo);
+        values.push(product_photo.trim());
       }
 
-      if (product_url !== undefined) {
+      // Adicionar product_url se fornecido
+      if (product_url !== undefined && product_url !== null && product_url.trim() !== '') {
         fields.push('product_url');
         placeholders.push('?');
-        values.push(product_url);
+        values.push(product_url.trim());
       }
 
       const query = `
@@ -63,71 +121,137 @@ module.exports = (app) => {
         VALUES (${placeholders.join(', ')})
       `;
 
+      console.log('📋 Query:', query);
+      console.log('📊 Valores:', values);
+      console.log('✅ Query construída com sucesso');
+
+      // ============================================
+      // 5. EXECUTAR INSERT NO BANCO
+      // ============================================
+      console.log('\n🟡 [DB INSERT] - Inserindo no banco...');
+
       const db = getDB();
-      db.query(query, values, (err, result) => {
+      
+      db.query(query, values, async (err, result) => {
         if (err) {
-          console.error('Erro ao criar review:', err);
+          console.error('❌ ERRO ao inserir no banco:', err);
+          console.error('  - Código:', err.code);
+          console.error('  - Mensagem:', err.message);
+          console.error('  - SQL:', err.sql);
+          
           return res.status(500).json({
-            error: 'Erro interno do servidor'
+            error: 'Erro ao criar post no banco de dados',
+            debug: process.env.NODE_ENV === 'development' ? {
+              code: err.code,
+              message: err.message,
+              sql: err.sql
+            } : undefined
           });
         }
 
-        // 🔌 Emitir evento WebSocket para nova postagem
-        const io = req.app.get('io');
-        if (io) {
-          const newPost = {
-            id_post: result.insertId,
-            rating: rating,
-            caption: caption,
-            category: category,
-            product_photo: product_photo,
-            product_url: product_url,
-            id_user: id_user,
-            username: req.user.username,
-            likes_count: 0,
-            comments_count: 0,
-            isLiked: false,
-            created_at: new Date().toISOString()
-          };
+        console.log('✅ Post inserido com sucesso!');
+        console.log('  - ID gerado:', result.insertId);
+        console.log('  - Affected rows:', result.affectedRows);
 
-          // Emitir para todos os usuários
-          io.emit('post:created', {
-            post: newPost,
-            category: category,
-            timestamp: new Date().toISOString()
-          });
+        // ============================================
+        // 6. EMITIR EVENTO WEBSOCKET
+        // ============================================
+        console.log('\n🟡 [WEBSOCKET] - Preparando evento WebSocket...');
 
-          // Emitir também para categoria específica
-          if (category) {
-            io.to(`category:${category}`).emit('post:new', {
+        try {
+          const io = req.app.get('io');
+          
+          if (io) {
+            const newPost = {
+              id_post: result.insertId,
+              rating: rating || null,
+              caption: caption,
+              category: category || null,
+              product_photo: product_photo || null,
+              product_url: product_url || null,
+              id_user: id_user,
+              username: req.user.username,
+              likes_count: 0,
+              comments_count: 0,
+              isLiked: false,
+              created_at: new Date().toISOString()
+            };
+
+            console.log('📤 Emitindo evento post:created...');
+
+            // Emitir para todos os usuários
+            io.emit('post:created', {
               post: newPost,
               category: category,
               timestamp: new Date().toISOString()
             });
-          }
 
-          console.log(`📝 [WebSocket] Nova postagem emitida: ${result.insertId}`);
+            // Emitir também para categoria específica
+            if (category && category.trim() !== '') {
+              io.to(`category:${category}`).emit('post:new', {
+                post: newPost,
+                category: category,
+                timestamp: new Date().toISOString()
+              });
+              console.log(`📝 [WebSocket] Post emitido para categoria: ${category}`);
+            }
+
+            console.log(`✅ [WebSocket] Eventos emitidos com sucesso (Post ID: ${result.insertId})`);
+          } else {
+            console.warn('⚠️ WebSocket não está disponível (io não configurado)');
+          }
+        } catch (wsError) {
+          console.error('⚠️ Erro ao emitir WebSocket (não bloqueia resposta):', wsError);
+          // Não falhar a resposta por erro de WebSocket
         }
+
+        // ============================================
+        // 7. RETORNAR SUCESSO
+        // ============================================
+        console.log('\n✅ [SUCCESS] - Resposta de sucesso enviada');
+        console.log('='.repeat(60) + '\n');
 
         res.status(201).json({
           success: true,
-          message: 'Review criado com sucesso!',
-          postId: result.insertId
+          message: 'Post criado com sucesso!',
+          postId: result.insertId,
+          post: {
+            id_post: result.insertId,
+            id_user: id_user,
+            caption: caption,
+            rating: rating || null,
+            category: category || null,
+            product_photo: product_photo || null,
+            product_url: product_url || null,
+            created_at: new Date().toISOString()
+          }
         });
       });
 
     } catch (error) {
-      console.error('Erro ao criar review:', error);
+      console.error('❌ [FATAL ERROR] - Erro não capturado:', error);
+      console.error('Stack:', error.stack);
+      console.log('='.repeat(60) + '\n');
+
       res.status(500).json({
-        error: 'Erro interno do servidor'
+        error: 'Erro interno do servidor',
+        debug: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
   });
 
-  // Buscar todos os reviews para o timeline (ordenados por data)
+  // =============================================
+  // ROTA: BUSCAR TIMELINE (CORRIGIDA)
+  // =============================================
   app.get('/api/posts/timeline', checkDB, authMiddleware, (req, res) => {
     try {
       const id_user = req.user.id_user;
+      const page = parseInt(req.query.page) || 1;
+      const limit = parseInt(req.query.limit) || 10;
+      const offset = (page - 1) * limit;
+
+      console.log(`\n🔵 [GET TIMELINE] - Página ${page}, Limit ${limit}`);
+
       const query = `
         SELECT 
           p.id_post,
@@ -146,36 +270,47 @@ module.exports = (app) => {
         LEFT JOIN account a ON p.id_user = a.id_user
         LEFT JOIN likes l ON p.id_post = l.id_post
         LEFT JOIN comments c ON p.id_post = c.id_post
-        GROUP BY p.id_post
+        GROUP BY p.id_post, a.id_user, a.username, p.rating, p.caption, p.category, p.product_photo, p.product_url, p.created_at
         ORDER BY p.created_at DESC
+        LIMIT ? OFFSET ?
       `;
 
       const db = getDB();
-      db.query(query, [id_user], (err, results) => {
+      db.query(query, [id_user, limit, offset], (err, results) => {
         if (err) {
-          console.error('Erro ao buscar timeline:', err);
+          console.error('❌ Erro ao buscar timeline:', err);
           return res.status(500).json({
-            error: 'Erro interno do servidor'
+            error: 'Erro ao buscar timeline',
+            debug: process.env.NODE_ENV === 'development' ? err.message : undefined
           });
         }
 
+        console.log(`✅ Timeline carregada: ${results.length} posts`);
         res.json({
           success: true,
-          posts: results
+          posts: results,
+          pagination: { page, limit, offset, total: results.length }
         });
       });
     } catch (error) {
-      console.error('Erro ao buscar timeline:', error);
+      console.error('❌ Erro ao buscar timeline:', error);
       res.status(500).json({
         error: 'Erro interno do servidor'
       });
     }
   });
 
+  // =============================================
+  // ROTAS ADICIONAIS (SEM ALTERAÇÕES CRÍTICAS)
+  // =============================================
+
   // Buscar reviews de um usuário específico
   app.get('/api/posts/user/:userId', checkDB, authMiddleware, (req, res) => {
     const { userId } = req.params;
     const id_user = req.user.id_user;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const offset = (page - 1) * limit;
 
     const query = `
       SELECT 
@@ -196,22 +331,24 @@ module.exports = (app) => {
       LEFT JOIN likes l ON p.id_post = l.id_post
       LEFT JOIN comments c ON p.id_post = c.id_post
       WHERE p.id_user = ?
-      GROUP BY p.id_post
+      GROUP BY p.id_post, a.id_user, a.username, p.rating, p.caption, p.category, p.product_photo, p.product_url, p.created_at
       ORDER BY p.created_at DESC
+      LIMIT ? OFFSET ?
     `;
 
     const db = getDB();
-    db.query(query, [id_user, userId], (err, results) => {
+    db.query(query, [id_user, userId, limit, offset], (err, results) => {
       if (err) {
-        console.error('Erro ao buscar reviews do usuário:', err);
+        console.error('❌ Erro ao buscar reviews do usuário:', err);
         return res.status(500).json({
-          error: 'Erro interno do servidor'
+          error: 'Erro ao buscar reviews do usuário'
         });
       }
 
       res.json({
         success: true,
-        posts: results
+        posts: results,
+        pagination: { page, limit, offset }
       });
     });
   });
@@ -220,6 +357,9 @@ module.exports = (app) => {
   app.get('/api/posts/category/:category', checkDB, authMiddleware, (req, res) => {
     const { category } = req.params;
     const id_user = req.user.id_user;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const offset = (page - 1) * limit;
 
     const query = `
       SELECT 
@@ -240,81 +380,117 @@ module.exports = (app) => {
       LEFT JOIN likes l ON p.id_post = l.id_post
       LEFT JOIN comments c ON p.id_post = c.id_post
       WHERE p.category = ?
-      GROUP BY p.id_post
+      GROUP BY p.id_post, a.id_user, a.username, p.rating, p.caption, p.category, p.product_photo, p.product_url, p.created_at
       ORDER BY p.created_at DESC
+      LIMIT ? OFFSET ?
     `;
 
     const db = getDB();
-    db.query(query, [id_user, category], (err, results) => {
+    db.query(query, [id_user, category, limit, offset], (err, results) => {
       if (err) {
-        console.error('Erro ao buscar reviews por categoria:', err);
+        console.error('❌ Erro ao buscar reviews por categoria:', err);
         return res.status(500).json({
-          error: 'Erro interno do servidor'
+          error: 'Erro ao buscar reviews por categoria'
         });
       }
 
       res.json({
         success: true,
-        posts: results
+        posts: results,
+        pagination: { page, limit, offset }
       });
     });
   });
 
   // Deletar review (apenas o autor pode deletar)
-  app.delete('/api/posts/:postId', checkDB, (req, res) => {
+  app.delete('/api/posts/:postId', checkDB, authMiddleware, (req, res) => {
     const { postId } = req.params;
-    const { id_user } = req.body;
+    const id_user = req.user.id_user;
+
+    console.log(`\n🔵 [DELETE POST] - Deletando post ${postId}`);
+    console.log(`  - Usuário: ${id_user}`);
 
     // Verificar se o post pertence ao usuário
     const checkQuery = 'SELECT id_user FROM post WHERE id_post = ?';
     const db = getDB();
     db.query(checkQuery, [postId], (err, results) => {
       if (err) {
-        console.error('Erro ao verificar post:', err);
+        console.error('❌ Erro ao verificar post:', err);
         return res.status(500).json({
-          error: 'Erro interno do servidor'
+          error: 'Erro ao verificar post',
+          debug: process.env.NODE_ENV === 'development' ? err.message : undefined
         });
       }
 
       if (results.length === 0) {
+        console.log('❌ Post não encontrado');
         return res.status(404).json({
-          error: 'Review não encontrado'
+          error: 'Post não encontrado'
         });
       }
 
-      if (results[0].id_user !== parseInt(id_user)) {
+      if (results[0].id_user !== id_user) {
+        console.log('❌ Usuário não autorizado');
         return res.status(403).json({
-          error: 'Você não tem permissão para deletar este review'
+          error: 'Você não tem permissão para deletar este post'
         });
       }
 
-      // Deletar o review
-      const deleteQuery = 'DELETE FROM post WHERE id_post = ?';
-      db.query(deleteQuery, [postId], (err) => {
+      console.log('✅ Post pertence ao usuário, deletando...');
+
+      // PASSO 1: Deletar comentários associados
+      console.log('🟡 [DELETE] - Deletando comentários...');
+      const deleteCommentsQuery = 'DELETE FROM comments WHERE id_post = ?';
+      db.query(deleteCommentsQuery, [postId], (err) => {
         if (err) {
-          console.error('Erro ao deletar review:', err);
-          return res.status(500).json({
-            error: 'Erro interno do servidor'
-          });
+          console.warn('⚠️ Erro ao deletar comentários:', err.message);
+        } else {
+          console.log('✅ Comentários deletados');
         }
 
-        res.json({
-          success: true,
-          message: 'Review deletado com sucesso!'
+        // PASSO 2: Deletar likes associados
+        console.log('🟡 [DELETE] - Deletando likes...');
+        const deleteLikesQuery = 'DELETE FROM likes WHERE id_post = ?';
+        db.query(deleteLikesQuery, [postId], (err) => {
+          if (err) {
+            console.warn('⚠️ Erro ao deletar likes:', err.message);
+          } else {
+            console.log('✅ Likes deletados');
+          }
+
+          // PASSO 3: Deletar o post em si
+          console.log('🟡 [DELETE] - Deletando post...');
+          const deletePostQuery = 'DELETE FROM post WHERE id_post = ?';
+          db.query(deletePostQuery, [postId], (err, result) => {
+            if (err) {
+              console.error('❌ Erro ao deletar post:', err);
+              return res.status(500).json({
+                error: 'Erro ao deletar post',
+                debug: process.env.NODE_ENV === 'development' ? err.message : undefined
+              });
+            }
+
+            console.log(`✅ Post ${postId} deletado com sucesso`);
+            console.log('='.repeat(60) + '\n');
+
+            res.json({
+              success: true,
+              message: 'Post deletado com sucesso!',
+              postId: postId
+            });
+          });
         });
       });
     });
   });
 
-  // ===========================================
-  // ROTAS PARA CURTIDAS (LIKES)
-  // ===========================================
+  // =============================================
+  // ROTAS DE LIKES
+  // =============================================
 
-  // Curtir/Descurtir review
   app.post('/api/posts/:postId/like', checkDB, authMiddleware, (req, res) => {
     try {
       const { postId } = req.params;
-      // 🔐 Pegar id_user do JWT, não do body
       const id_user = req.user.id_user;
 
       if (!id_user) {
@@ -323,12 +499,11 @@ module.exports = (app) => {
         });
       }
 
-      // Verificar se o usuário já curtiu
       const checkQuery = 'SELECT id_like FROM likes WHERE id_post = ? AND id_user = ?';
       const db = getDB();
       db.query(checkQuery, [postId, id_user], (err, results) => {
         if (err) {
-          console.error('Erro ao verificar like:', err);
+          console.error('❌ Erro ao verificar like:', err);
           return res.status(500).json({
             error: 'Erro interno do servidor'
           });
@@ -339,23 +514,25 @@ module.exports = (app) => {
           const deleteQuery = 'DELETE FROM likes WHERE id_post = ? AND id_user = ?';
           db.query(deleteQuery, [postId, id_user], (err) => {
             if (err) {
-              console.error('Erro ao remover like:', err);
+              console.error('❌ Erro ao remover like:', err);
               return res.status(500).json({
                 error: 'Erro interno do servidor'
               });
             }
 
-            // 🔌 Emitir evento WebSocket
-            const io = req.app.get('io');
-            if (io) {
-              io.emit('post:like-update', {
-                postId: postId,
-                action: 'unliked',
-                userId: id_user,
-                username: req.user.username,
-                timestamp: new Date().toISOString()
-              });
-              console.log(`❤️  [WebSocket] Curtida removida: post ${postId}`);
+            try {
+              const io = req.app.get('io');
+              if (io) {
+                io.emit('post:like-update', {
+                  postId: postId,
+                  action: 'unliked',
+                  userId: id_user,
+                  username: req.user.username,
+                  timestamp: new Date().toISOString()
+                });
+              }
+            } catch (wsError) {
+              console.warn('⚠️ WebSocket error (não bloqueia):', wsError);
             }
 
             res.json({
@@ -369,57 +546,52 @@ module.exports = (app) => {
           const insertQuery = 'INSERT INTO likes (id_post, id_user, created_at) VALUES (?, ?, NOW())';
           db.query(insertQuery, [postId, id_user], (err) => {
             if (err) {
-              console.error('Erro ao adicionar like:', err);
+              console.error('❌ Erro ao adicionar like:', err);
               return res.status(500).json({
                 error: 'Erro interno do servidor'
               });
             }
 
-            // 🔌 Emitir evento WebSocket
-            const io = req.app.get('io');
-            if (io) {
-              io.emit('post:like-update', {
-                postId: postId,
-                action: 'liked',
-                userId: id_user,
-                username: req.user.username,
-                timestamp: new Date().toISOString()
-              });
-              console.log(`❤️  [WebSocket] Curtida adicionada: post ${postId}`);
+            try {
+              const io = req.app.get('io');
+              if (io) {
+                io.emit('post:like-update', {
+                  postId: postId,
+                  action: 'liked',
+                  userId: id_user,
+                  username: req.user.username,
+                  timestamp: new Date().toISOString()
+                });
+              }
+            } catch (wsError) {
+              console.warn('⚠️ WebSocket error (não bloqueia):', wsError);
             }
 
             res.json({
               success: true,
-              message: 'Review curtido',
+              message: 'Post curtido',
               action: 'liked'
             });
           });
         }
       });
     } catch (error) {
-      console.error('Erro ao processar curtida:', error);
+      console.error('❌ Erro ao processar curtida:', error);
       res.status(500).json({
         error: 'Erro interno do servidor'
       });
     }
   });
 
-  // Verificar se usuário curtiu um review específico
-  app.get('/api/posts/:postId/like-status', checkDB, (req, res) => {
+  app.get('/api/posts/:postId/like-status', checkDB, authMiddleware, (req, res) => {
     const { postId } = req.params;
-    const { id_user } = req.query;
-
-    if (!id_user) {
-      return res.status(400).json({
-        error: 'ID do usuário é obrigatório'
-      });
-    }
+    const id_user = req.user.id_user;
 
     const query = 'SELECT id_like FROM likes WHERE id_post = ? AND id_user = ?';
     const db = getDB();
     db.query(query, [postId, id_user], (err, results) => {
       if (err) {
-        console.error('Erro ao verificar status do like:', err);
+        console.error('❌ Erro ao verificar status do like:', err);
         return res.status(500).json({
           error: 'Erro interno do servidor'
         });
@@ -432,26 +604,22 @@ module.exports = (app) => {
     });
   });
 
-  // ===========================================
-  // ROTAS PARA COMENTÁRIOS
-  // ===========================================
+  // =============================================
+  // ROTAS DE COMENTÁRIOS
+  // =============================================
 
-  // Adicionar comentário
   app.post('/api/posts/:postId/comments', checkDB, authMiddleware, (req, res) => {
     try {
       const { postId } = req.params;
-      // 🔐 Pegar id_user do JWT, não do body
       const id_user = req.user.id_user;
       const { comment_text } = req.body;
 
-      // Validação: id_user vem do JWT autenticado
       if (!id_user) {
         return res.status(401).json({
           error: 'Usuário não autenticado'
         });
       }
 
-      // Se comment_text não for fornecido, criar comentário vazio
       const comment = comment_text || '';
 
       const query = `
@@ -462,29 +630,31 @@ module.exports = (app) => {
       const db = getDB();
       db.query(query, [postId, id_user, comment], (err, result) => {
         if (err) {
-          console.error('Erro ao adicionar comentário:', err);
+          console.error('❌ Erro ao adicionar comentário:', err);
           return res.status(500).json({
             error: 'Erro interno do servidor'
           });
         }
 
-        // 🔌 Emitir evento WebSocket
-        const io = req.app.get('io');
-        if (io) {
-          io.emit('post:comment-added', {
-            postId: postId,
-            commentId: result.insertId,
-            comment: {
-              id_comment: result.insertId,
-              id_post: postId,
-              id_user: id_user,
-              comment_text: comment,
-              username: req.user.username,
-              created_at: new Date().toISOString()
-            },
-            timestamp: new Date().toISOString()
-          });
-          console.log(`💬 [WebSocket] Novo comentário emitido: ${result.insertId} (post ${postId})`);
+        try {
+          const io = req.app.get('io');
+          if (io) {
+            io.emit('post:comment-added', {
+              postId: postId,
+              commentId: result.insertId,
+              comment: {
+                id_comment: result.insertId,
+                id_post: postId,
+                id_user: id_user,
+                comment_text: comment,
+                username: req.user.username,
+                created_at: new Date().toISOString()
+              },
+              timestamp: new Date().toISOString()
+            });
+          }
+        } catch (wsError) {
+          console.warn('⚠️ WebSocket error (não bloqueia):', wsError);
         }
 
         res.status(201).json({
@@ -494,14 +664,13 @@ module.exports = (app) => {
         });
       });
     } catch (error) {
-      console.error('Erro ao processar adição de comentário:', error);
+      console.error('❌ Erro ao processar comentário:', error);
       res.status(500).json({
         error: 'Erro interno do servidor'
       });
     }
   });
 
-  // Buscar comentários de um review
   app.get('/api/posts/:postId/comments', checkDB, (req, res) => {
     const { postId } = req.params;
 
@@ -521,7 +690,7 @@ module.exports = (app) => {
     const db = getDB();
     db.query(query, [postId], (err, results) => {
       if (err) {
-        console.error('Erro ao buscar comentários:', err);
+        console.error('❌ Erro ao buscar comentários:', err);
         return res.status(500).json({
           error: 'Erro interno do servidor'
         });
@@ -534,17 +703,15 @@ module.exports = (app) => {
     });
   });
 
-  // Deletar comentário (apenas o autor pode deletar)
-  app.delete('/api/posts/:postId/comments/:commentId', checkDB, (req, res) => {
+  app.delete('/api/posts/:postId/comments/:commentId', checkDB, authMiddleware, (req, res) => {
     const { commentId } = req.params;
-    const { id_user } = req.body;
+    const id_user = req.user.id_user;
     const db = getDB();
 
-    // Verificar se o comentário pertence ao usuário
     const checkQuery = 'SELECT id_user FROM comments WHERE id_comment = ?';
     db.query(checkQuery, [commentId], (err, results) => {
       if (err) {
-        console.error('Erro ao verificar comentário:', err);
+        console.error('❌ Erro ao verificar comentário:', err);
         return res.status(500).json({
           error: 'Erro interno do servidor'
         });
@@ -556,17 +723,16 @@ module.exports = (app) => {
         });
       }
 
-      if (results[0].id_user !== parseInt(id_user)) {
+      if (results[0].id_user !== id_user) {
         return res.status(403).json({
           error: 'Você não tem permissão para deletar este comentário'
         });
       }
 
-      // Deletar o comentário
       const deleteQuery = 'DELETE FROM comments WHERE id_comment = ?';
       db.query(deleteQuery, [commentId], (err) => {
         if (err) {
-          console.error('Erro ao deletar comentário:', err);
+          console.error('❌ Erro ao deletar comentário:', err);
           return res.status(500).json({
             error: 'Erro interno do servidor'
           });
@@ -580,11 +746,10 @@ module.exports = (app) => {
     });
   });
 
-  // ===========================================
-  // ROTAS ADICIONAIS PARA ESTATÍSTICAS
-  // ===========================================
+  // =============================================
+  // ROTAS DE ESTATÍSTICAS E OUTRAS
+  // =============================================
 
-  // Obter estatísticas de um review
   app.get('/api/posts/:postId/stats', checkDB, (req, res) => {
     try {
       const { postId } = req.params;
@@ -598,7 +763,7 @@ module.exports = (app) => {
       const db = getDB();
       db.query(query, [postId, postId], (err, results) => {
         if (err) {
-          console.error('Erro ao buscar estatísticas:', err);
+          console.error('❌ Erro ao buscar estatísticas:', err);
           return res.status(500).json({
             error: 'Erro interno do servidor'
           });
@@ -610,14 +775,13 @@ module.exports = (app) => {
         });
       });
     } catch (error) {
-      console.error('Erro ao processar estatísticas:', error);
+      console.error('❌ Erro ao processar estatísticas:', error);
       res.status(500).json({
         error: 'Erro interno do servidor'
       });
     }
   });
 
-  // Buscar usuários que curtiram um review
   app.get('/api/posts/:postId/likes', checkDB, (req, res) => {
     const { postId } = req.params;
 
@@ -635,7 +799,7 @@ module.exports = (app) => {
     const db = getDB();
     db.query(query, [postId], (err, results) => {
       if (err) {
-        console.error('Erro ao buscar curtidas:', err);
+        console.error('❌ Erro ao buscar curtidas:', err);
         return res.status(500).json({
           error: 'Erro interno do servidor'
         });
@@ -648,12 +812,13 @@ module.exports = (app) => {
     });
   });
 
-  // Buscar reviews por rating
   app.get('/api/posts/rating/:rating', checkDB, authMiddleware, (req, res) => {
     const { rating } = req.params;
     const id_user = req.user.id_user;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const offset = (page - 1) * limit;
 
-    // Validar rating
     if (rating < 1 || rating > 5) {
       return res.status(400).json({
         error: 'Rating deve estar entre 1 e 5'
@@ -679,14 +844,15 @@ module.exports = (app) => {
       LEFT JOIN likes l ON p.id_post = l.id_post
       LEFT JOIN comments c ON p.id_post = c.id_post
       WHERE p.rating = ?
-      GROUP BY p.id_post
+      GROUP BY p.id_post, a.id_user, a.username, p.rating, p.caption, p.category, p.product_photo, p.product_url, p.created_at
       ORDER BY p.created_at DESC
+      LIMIT ? OFFSET ?
     `;
 
     const db = getDB();
-    db.query(query, [id_user, rating], (err, results) => {
+    db.query(query, [id_user, rating, limit, offset], (err, results) => {
       if (err) {
-        console.error('Erro ao buscar reviews por rating:', err);
+        console.error('❌ Erro ao buscar reviews por rating:', err);
         return res.status(500).json({
           error: 'Erro interno do servidor'
         });
@@ -694,24 +860,24 @@ module.exports = (app) => {
 
       res.json({
         success: true,
-        posts: results
+        posts: results,
+        pagination: { page, limit, offset }
       });
     });
   });
 
-  // Buscar categorias disponíveis
   app.get('/api/categories', checkDB, (req, res) => {
-    const query = 'SELECT DISTINCT category FROM post ORDER BY category ASC';
+    const query = 'SELECT DISTINCT category FROM post WHERE category IS NOT NULL AND category != "" ORDER BY category ASC';
     const db = getDB();
     db.query(query, (err, results) => {
       if (err) {
-        console.error('Erro ao buscar categorias:', err);
+        console.error('❌ Erro ao buscar categorias:', err);
         return res.status(500).json({
           error: 'Erro interno do servidor'
         });
       }
 
-      const categories = results.map(row => row.category);
+      const categories = results.map(row => row.category).filter(cat => cat);
 
       res.json({
         success: true,

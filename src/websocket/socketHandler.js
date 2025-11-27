@@ -4,9 +4,13 @@
 const jwt = require('jsonwebtoken');
 const logger = require('../utils/logger');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'SEU_SEGREDO_AQUI';
+const JWT_SECRET = process.env.JWT_SECRET;
 
-// Mapa de usuários conectados: { userId: { socketId, username } }
+if (!JWT_SECRET) {
+  throw new Error('JWT_SECRET não definida em variáveis de ambiente. Configure no arquivo .env');
+}
+
+// Mapa de usuários conectados: { userId: { socketId, username, connectedAt } }
 const connectedUsers = new Map();
 
 // Mapa de salas: { categoryName: Set<socketIds> }

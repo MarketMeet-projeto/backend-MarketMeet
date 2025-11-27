@@ -4,10 +4,10 @@ const bcrypt = require('bcryptjs');
 class AuthService {
   constructor(db) {
     this.db = db;
-    this.JWT_SECRET = process.env.JWT_SECRET || 'SEU_SEGREDO_AQUI';
-    // Aviso para desenvolvimento
-    if (!process.env.JWT_SECRET) {
-      console.warn('⚠️ JWT_SECRET não definida em variáveis de ambiente. Usando valor padrão (inseguro para produção)');
+    this.JWT_SECRET = process.env.JWT_SECRET;
+    
+    if (!this.JWT_SECRET) {
+      throw new Error('JWT_SECRET não definida em variáveis de ambiente. Configure no arquivo .env');
     }
   }
 

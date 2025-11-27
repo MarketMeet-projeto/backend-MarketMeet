@@ -15,6 +15,9 @@ const pool = mysql.createPool({
   queueLimit: 0
 });
 
+// Versão com Promises
+const poolPromises = pool.promise();
+
 let dbConnected = false;
 
 // Testar conexão inicial
@@ -32,6 +35,7 @@ pool.getConnection((err, connection) => {
 });
 
 const getDB = () => pool;
+const getDBAsync = () => poolPromises;
 const isConnected = () => dbConnected;
 
 // Middleware para verificar conexão com o banco (faz uma simples query de ping)
@@ -50,6 +54,7 @@ const checkDB = (req, res, next) => {
 
 module.exports = {
   getDB,
+  getDBAsync,
   isConnected,
   checkDB
 };
